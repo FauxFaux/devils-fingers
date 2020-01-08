@@ -1,6 +1,5 @@
 use std::env;
 use std::fs;
-use std::io;
 use std::io::Write;
 use std::slice;
 
@@ -9,10 +8,13 @@ use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
 mod pcap;
 
 fn main() {
-    let mut file = io::BufWriter::new(
+    let mut file = zstd::Encoder::new(
         fs::File::create(env::args_os().nth(1).expect("usage: dest file")).expect("creating file"),
-    );
+        3
+    ).expect("zstd");
     let handle = unsafe { pcap::open_with_filter() };
+
+    let mut written = 0u8;
 
     loop {
         let (header, data) = match unsafe { pcap::next(handle) } {
@@ -73,5 +75,12 @@ fn main() {
         record[12..12 + usable].copy_from_slice(&data[..usable]);
 
         file.write_all(&record).expect("writing output");
+
+        written += 1;
+
+        if written == 255 {
+            file.flush().expect("flushing");
+            written = 0;
+        }
     }
 }
