@@ -68,9 +68,11 @@ pub unsafe fn open_with_filter() -> *mut pcap_t {
     handle
 }
 
-pub unsafe fn next(handle: *mut pcap_t) -> (*mut pcap_pkthdr, *const c_uchar) {
+pub unsafe fn next(handle: *mut pcap_t) -> Option<(*mut pcap_pkthdr, *const c_uchar)> {
     let mut header: *mut pcap_pkthdr = ptr::null_mut();
     let mut buf: *const c_uchar = ptr::null();
-    assert_ne!(-1, pcap_next_ex(handle, &mut header, &mut buf));
-    (header, buf)
+    if 1 != pcap_next_ex(handle, &mut header, &mut buf) {
+        return None;
+    }
+    Some((header, buf))
 }
