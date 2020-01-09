@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use etherparse::InternetSlice;
 use etherparse::SlicedPacket;
@@ -55,10 +55,19 @@ fn main() -> Result<(), Error> {
 
     let worker = thread::spawn(|| read_packets(handle, sink, running));
 
+    let mut last_flush = Instant::now();
+
     while recv_loop.load(Ordering::SeqCst) {
         match recv.recv_timeout(Duration::from_secs(1)) {
             Ok(buf) => file.write_all(&buf)?,
-            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Timeout) => {
+                let now = Instant::now();
+                if now.duration_since(last_flush).as_secs() > 10 {
+                    file.flush()?;
+                    last_flush = now;
+                }
+                continue;
+            }
             Err(RecvTimeoutError::Disconnected) => break,
         }
     }
