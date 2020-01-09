@@ -4,7 +4,9 @@ use std::io::Write;
 use std::slice;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::sync::mpsc;
 use std::sync::Arc;
+use std::thread;
 
 use etherparse::InternetSlice;
 use etherparse::SlicedPacket;
@@ -12,7 +14,6 @@ use etherparse::TransportSlice;
 use failure::err_msg;
 use failure::Error;
 use failure::ResultExt;
-use crate::pcap::pcap_t;
 
 mod pcap;
 
@@ -46,20 +47,30 @@ fn main() -> Result<(), Error> {
         in_handler.store(false, Ordering::SeqCst);
     })?;
 
-    read_packets(handle, &mut file, running)?;
+    let (sink, recv) = mpsc::sync_channel(32);
+
+    let worker = thread::spawn(|| read_packets(handle, sink, running));
+
+    while let Some(buf) = recv.recv().ok() {
+        file.write_all(&buf)?;
+    }
 
     file.finish()?;
+
+    worker.join().expect("join")?;
 
     Ok(())
 }
 
-fn read_packets<W: Write>(handle: *mut pcap_t, mut file: W, running: Arc<AtomicBool>) -> Result<(), Error> {
-    let mut written = 0u8;
-
+fn read_packets(
+    mut handle: pcap::PCap,
+    sink: mpsc::SyncSender<[u8; 256]>,
+    running: Arc<AtomicBool>,
+) -> Result<(), Error> {
     while running.load(Ordering::SeqCst) {
         // unsafe: these pointers are only valid until the
         // next call to `next` (or other currently not exposed functions)
-        let (header, data) = match unsafe { pcap::next(handle) } {
+        let (header, data) = match unsafe { pcap::next(&mut handle) } {
             Some(d) => d,
             None => continue,
         };
@@ -120,13 +131,9 @@ fn read_packets<W: Write>(handle: *mut pcap_t, mut file: W, running: Arc<AtomicB
         let usable = (data.len()).min(record.len() - HEADER_END);
         record[HEADER_END..HEADER_END + usable].copy_from_slice(&data[..usable]);
 
-        file.write_all(&record)?;
-
-        written += 1;
-
-        if written == 255 {
-            file.flush()?;
-            written = 0;
+        // err: disconnected
+        if sink.send(record).is_err() {
+            break;
         }
     }
 
