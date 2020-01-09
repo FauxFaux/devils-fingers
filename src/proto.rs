@@ -5,6 +5,7 @@ use std::io::Write;
 
 use aead::Aead as _;
 use aead::NewAead as _;
+use aead::Payload;
 use chacha20poly1305::XChaCha20Poly1305 as Cha;
 use failure::ensure;
 use failure::Error;
@@ -48,12 +49,20 @@ impl<W: Write> Write for Enc<W> {
 
         self.ctr += 1;
 
+        let len_bytes = len.to_le_bytes();
+
         let ciphertext = self
             .cipher
-            .encrypt(GenericArray::from_slice(&nonce), data)
+            .encrypt(
+                GenericArray::from_slice(&nonce),
+                Payload {
+                    msg: &data,
+                    aad: &len_bytes,
+                },
+            )
             .expect("static sizes");
 
-        self.inner.write_all(&len.to_le_bytes())?;
+        self.inner.write_all(&len_bytes)?;
         self.inner.write_all(&ciphertext)?;
 
         Ok(data.len())
@@ -94,22 +103,25 @@ impl<R: Read> Dec<R> {
     }
 
     pub fn read_frame(&mut self) -> Result<Vec<u8>, io::Error> {
-        let mut len = [0u8; 2];
-        self.inner.read_exact(&mut len)?;
-        let len = u16::from_le_bytes(len);
-        let len = usize::from(len);
+        let mut len_bytes = [0u8; 2];
+        self.inner.read_exact(&mut len_bytes)?;
+        let len = usize::from(u16::from_le_bytes(len_bytes));
+
         let mut data = vec![0u8; len + 16];
         self.inner.read_exact(&mut data)?;
 
         let nonce = build_nonce(&self.nonce_base, self.ctr);
         self.ctr += 1;
 
-        match self
-            .cipher
-            .decrypt(GenericArray::from_slice(&nonce), data.as_slice())
-        {
+        match self.cipher.decrypt(
+            GenericArray::from_slice(&nonce),
+            Payload {
+                msg: &data,
+                aad: &len_bytes,
+            },
+        ) {
             Ok(buf) => Ok(buf),
-            Err(_) => Err(io::ErrorKind::Other.into()),
+            Err(_) => Err(io::ErrorKind::InvalidData.into()),
         }
     }
 }
