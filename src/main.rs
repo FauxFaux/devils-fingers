@@ -2,13 +2,15 @@ use std::env;
 use std::fs;
 use std::io::Write;
 use std::slice;
+use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use std::time::Instant;
 
 use digest::Digest;
 use etherparse::InternetSlice;
@@ -23,25 +25,50 @@ mod proto;
 
 fn main() -> Result<(), Error> {
     let args = clap::App::new(clap::crate_name!())
-        .arg(clap::Arg::with_name("daemon").long("daemon"))
-        .arg(
-            clap::Arg::with_name("dest")
-                .long("dest")
-                .takes_value(true)
-                .required(true),
+        .setting(clap::AppSettings::SubcommandRequiredElseHelp)
+        .subcommand(
+            clap::SubCommand::with_name("capture")
+                .arg(clap::Arg::with_name("daemon").long("daemon"))
+                .arg(
+                    clap::Arg::with_name("dest")
+                        .long("dest")
+                        .takes_value(true)
+                        .required(true),
+                )
+                .arg(
+                    clap::Arg::with_name("port")
+                        .short("p")
+                        .long("port")
+                        .multiple(true)
+                        .value_delimiter(",")
+                        .required(true),
+                ),
         )
         .get_matches();
-
     let master_key = env::var("PCAP_MASTER_KEY").with_context(|_| "PCAP_MASTER_KEY must be set")?;
     let master_key = sha2::Sha512Trunc256::digest(master_key.as_bytes());
 
-    let file = fs::File::create(
-        args.value_of_os("dest")
-            .ok_or_else(|| err_msg("usage: dest file"))?,
-    )?;
+    let args = match args.subcommand() {
+        ("capture", Some(args)) => args,
+        (_, _) => unreachable!("bad subcommand"),
+    };
+
+    let ports: Vec<u16> = args
+        .values_of("port")
+        .expect("required arg")
+        .map(|v| u16::from_str(v).expect("invalid port number"))
+        .collect();
+
+    let filter = ports
+        .into_iter()
+        .map(|p| format!("tcp port {}", p))
+        .collect::<Vec<String>>()
+        .join(" or ");
+
+    let file = fs::File::create(args.value_of_os("dest").expect("required param"))?;
     let mut file = zstd::Encoder::new(file, 3)?;
     let handle =
-        pcap::open_with_filter("any", "port 80").with_context(|_| err_msg("starting capture"))?;
+        pcap::open_with_filter("any", &filter).with_context(|_| err_msg("starting capture"))?;
 
     if args.is_present("daemon") {
         println!("Running in background...");
