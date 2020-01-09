@@ -44,6 +44,10 @@ fn main() -> Result<(), Error> {
             Some(d) => d,
             None => continue,
         };
+        let libc::timeval { tv_sec, tv_usec } = unsafe { (*header).ts };
+        let _: i64 = tv_sec;
+        let _: i64 = tv_usec;
+
         let data = unsafe { slice::from_raw_parts(data, (*header).caplen as usize) };
 
         // it's probably right, I promise
@@ -86,13 +90,16 @@ fn main() -> Result<(), Error> {
             _ => continue,
         };
 
-        let mut record = [0u8; 4 + 4 + 2 + 2 + 116];
-        record[..4].copy_from_slice(src_ip);
-        record[4..8].copy_from_slice(dest_ip);
-        record[8..10].copy_from_slice(&t.source_port().to_le_bytes());
-        record[10..12].copy_from_slice(&t.destination_port().to_le_bytes());
-        let usable = (data.len()).min(record.len() - 12);
-        record[12..12 + usable].copy_from_slice(&data[..usable]);
+        let mut record = [0u8; 8 + 8 + 4 + 4 + 2 + 2 + 228];
+        record[..8].copy_from_slice(&tv_sec.to_le_bytes());
+        record[8..16].copy_from_slice(&tv_usec.to_le_bytes());
+        record[16..20].copy_from_slice(src_ip);
+        record[20..24].copy_from_slice(dest_ip);
+        record[24..26].copy_from_slice(&t.source_port().to_le_bytes());
+        const HEADER_END: usize = 28;
+        record[26..HEADER_END].copy_from_slice(&t.destination_port().to_le_bytes());
+        let usable = (data.len()).min(record.len() - HEADER_END);
+        record[HEADER_END..HEADER_END + usable].copy_from_slice(&data[..usable]);
 
         file.write_all(&record)?;
 
