@@ -2,6 +2,9 @@ use std::env;
 use std::fs;
 use std::io::Write;
 use std::slice;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use etherparse::InternetSlice;
 use etherparse::SlicedPacket;
@@ -9,6 +12,7 @@ use etherparse::TransportSlice;
 use failure::err_msg;
 use failure::Error;
 use failure::ResultExt;
+use crate::pcap::pcap_t;
 
 mod pcap;
 
@@ -35,9 +39,24 @@ fn main() -> Result<(), Error> {
         nix::unistd::daemon(false, false)?;
     }
 
+    let running = Arc::new(AtomicBool::new(true));
+    let in_handler = running.clone();
+
+    ctrlc::set_handler(move || {
+        in_handler.store(false, Ordering::SeqCst);
+    })?;
+
+    read_packets(handle, &mut file, running)?;
+
+    file.finish()?;
+
+    Ok(())
+}
+
+fn read_packets<W: Write>(handle: *mut pcap_t, mut file: W, running: Arc<AtomicBool>) -> Result<(), Error> {
     let mut written = 0u8;
 
-    loop {
+    while running.load(Ordering::SeqCst) {
         // unsafe: these pointers are only valid until the
         // next call to `next` (or other currently not exposed functions)
         let (header, data) = match unsafe { pcap::next(handle) } {
@@ -110,4 +129,6 @@ fn main() -> Result<(), Error> {
             written = 0;
         }
     }
+
+    Ok(())
 }
