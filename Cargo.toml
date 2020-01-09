@@ -5,8 +5,11 @@ authors = ["Chris West (Faux) <git@goeswhere.com>"]
 edition = "2018"
 
 [dependencies]
+clap = "2"
 etherparse = "0.9"
+failure = { version = "0.1", default-features = false, features = ["std"] }
 libc = "0.2"
+nix = "0.16"
 zstd = "0.5"
 
 [profile.release]

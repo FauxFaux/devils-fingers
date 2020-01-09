@@ -3,26 +3,46 @@ use std::fs;
 use std::io::Write;
 use std::slice;
 
-use etherparse::{InternetSlice, SlicedPacket, TransportSlice};
+use etherparse::InternetSlice;
+use etherparse::SlicedPacket;
+use etherparse::TransportSlice;
+use failure::err_msg;
+use failure::Error;
+use failure::ResultExt;
 
 mod pcap;
 
-fn main() {
-    let mut file = zstd::Encoder::new(
-        fs::File::create(env::args_os().nth(1).expect("usage: dest file")).expect("creating file"),
-        3
-    ).expect("zstd");
-    let handle = unsafe { pcap::open_with_filter() };
+fn main() -> Result<(), Error> {
+    let args = clap::App::new(clap::crate_name!())
+        .arg(clap::Arg::with_name("daemon").long("daemon"))
+        .arg(
+            clap::Arg::with_name("dest")
+                .long("dest")
+                .takes_value(true)
+                .required(true),
+        )
+        .get_matches();
+    let file = fs::File::create(
+        args.value_of_os("dest")
+            .ok_or_else(|| err_msg("usage: dest file"))?,
+    )?;
+    let mut file = zstd::Encoder::new(file, 3)?;
+    let handle =
+        pcap::open_with_filter("any", "port 80").with_context(|_| err_msg("starting capture"))?;
+
+    if args.is_present("daemon") {
+        println!("Running in background...");
+        nix::unistd::daemon(false, false)?;
+    }
 
     let mut written = 0u8;
 
     loop {
+        // unsafe: these pointers are only valid until the
+        // next call to `next` (or other currently not exposed functions)
         let (header, data) = match unsafe { pcap::next(handle) } {
             Some(d) => d,
-            None => {
-                eprintln!("error");
-                continue;
-            }
+            None => continue,
         };
         let data = unsafe { slice::from_raw_parts(data, (*header).caplen as usize) };
 
@@ -74,12 +94,12 @@ fn main() {
         let usable = (data.len()).min(record.len() - 12);
         record[12..12 + usable].copy_from_slice(&data[..usable]);
 
-        file.write_all(&record).expect("writing output");
+        file.write_all(&record)?;
 
         written += 1;
 
         if written == 255 {
-            file.flush().expect("flushing");
+            file.flush()?;
             written = 0;
         }
     }

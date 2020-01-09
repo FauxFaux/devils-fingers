@@ -4,6 +4,9 @@ use std::ffi::CString;
 use std::mem;
 use std::ptr;
 
+use failure::ensure;
+use failure::err_msg;
+use failure::Error;
 use libc::{c_char, c_int, c_uchar, c_uint, c_ushort, timeval};
 
 pub enum pcap_t {}
@@ -56,16 +59,25 @@ extern "C" {
     ) -> c_int;
 }
 
-pub unsafe fn open_with_filter() -> *mut pcap_t {
-    let device = CString::new("any").unwrap();
+pub fn open_with_filter(device: &str, filter: &str) -> Result<*mut pcap_t, Error> {
+    let device = CString::new(device)?;
     let mut err = [0 as c_char; 4096];
-    let handle = pcap_open_live(device.as_ptr(), 8096, 1, 1000, err.as_mut_ptr());
-    assert!(!handle.is_null());
-    let prog = CString::new("port 80").unwrap();
-    let mut bpf = mem::zeroed();
-    assert_ne!(-1, pcap_compile(handle, &mut bpf, prog.as_ptr(), 0, 0));
-    assert_ne!(-1, pcap_setfilter(handle, &mut bpf));
-    handle
+    let handle = unsafe { pcap_open_live(device.as_ptr(), 8096, 1, 1000, err.as_mut_ptr()) };
+    ensure!(!handle.is_null(), "open failed: {}", pcap_msg(&err));
+
+    let prog = CString::new(filter)?;
+    let mut bpf = unsafe { mem::zeroed() };
+    ensure!(
+        0 == unsafe { pcap_compile(handle, &mut bpf, prog.as_ptr(), 0, 0) },
+        "compile failed"
+    );
+
+    ensure!(
+        0 == unsafe { pcap_setfilter(handle, &mut bpf) },
+        "set failed"
+    );
+
+    Ok(handle)
 }
 
 pub unsafe fn next(handle: *mut pcap_t) -> Option<(*mut pcap_pkthdr, *const c_uchar)> {
@@ -75,4 +87,13 @@ pub unsafe fn next(handle: *mut pcap_t) -> Option<(*mut pcap_pkthdr, *const c_uc
         return None;
     }
     Some((header, buf))
+}
+
+fn pcap_msg(err: &[i8]) -> String {
+    let err = unsafe { &*(err as *const _ as *const [u8]) };
+    let end = err
+        .iter()
+        .position(|&c| 0 == c)
+        .unwrap_or_else(|| err.len());
+    String::from_utf8_lossy(&err[..end]).to_string()
 }
