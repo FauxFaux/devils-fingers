@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use digest::Digest;
 use etherparse::InternetSlice;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice;
@@ -30,6 +31,10 @@ fn main() -> Result<(), Error> {
                 .required(true),
         )
         .get_matches();
+
+    let master_key = env::var("PCAP_MASTER_KEY").with_context(|_| "PCAP_MASTER_KEY must be set")?;
+    let master_key = sha2::Sha512Trunc256::digest(master_key.as_bytes());
+
     let file = fs::File::create(
         args.value_of_os("dest")
             .ok_or_else(|| err_msg("usage: dest file"))?,

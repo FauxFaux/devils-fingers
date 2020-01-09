@@ -9,6 +9,7 @@ aead = "0.2"
 chacha20poly1305 = "0.3"
 clap = "2"
 ctrlc = { version = "3", features = ["termination"] }
+digest = "0.8"
 etherparse = "0.9"
 failure = { version = "0.1", default-features = false, features = ["std"] }
 # so dumb, needed for a cast
@@ -16,6 +17,7 @@ generic-array = "0.12"
 libc = "0.2"
 nix = "0.16"
 rand = "0.7"
+sha2 = "0.8"
 zstd = "0.5"
 
 [dev-dependencies]
