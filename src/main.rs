@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use std::net;
 
 use digest::Digest;
 use etherparse::InternetSlice;
@@ -19,6 +20,7 @@ use etherparse::TransportSlice;
 use failure::err_msg;
 use failure::Error;
 use failure::ResultExt;
+use crate::proto::Enc;
 
 mod pcap;
 mod proto;
@@ -65,8 +67,10 @@ fn main() -> Result<(), Error> {
         .collect::<Vec<String>>()
         .join(" or ");
 
-    let file = fs::File::create(args.value_of_os("dest").expect("required param"))?;
-    let mut file = zstd::Encoder::new(file, 3)?;
+    let dest = args.value_of("dest").expect("required param");
+    let dest = net::TcpStream::connect(dest)?;
+    let dest = Enc::new(master_key.into(), dest)?;
+    let mut dest = zstd::Encoder::new(dest, 3)?;
     let handle =
         pcap::open_with_filter("any", &filter).with_context(|_| err_msg("starting capture"))?;
 
@@ -92,11 +96,11 @@ fn main() -> Result<(), Error> {
 
     while recv_loop.load(Ordering::SeqCst) {
         match recv.recv_timeout(Duration::from_secs(1)) {
-            Ok(buf) => file.write_all(&buf)?,
+            Ok(buf) => dest.write_all(&buf)?,
             Err(RecvTimeoutError::Timeout) => {
                 let now = Instant::now();
                 if now.duration_since(last_flush).as_secs() > 10 {
-                    file.flush()?;
+                    dest.flush()?;
                     last_flush = now;
                 }
                 continue;
@@ -105,7 +109,7 @@ fn main() -> Result<(), Error> {
         }
     }
 
-    file.finish()?;
+    dest.finish()?;
 
     println!("File closed, may block until next packet...");
 
