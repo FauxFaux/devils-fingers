@@ -18,6 +18,7 @@ use failure::Error;
 use failure::ResultExt;
 
 mod pcap;
+mod proto;
 
 fn main() -> Result<(), Error> {
     let args = clap::App::new(clap::crate_name!())
