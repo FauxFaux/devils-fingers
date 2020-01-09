@@ -5,8 +5,10 @@ use std::slice;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use etherparse::InternetSlice;
 use etherparse::SlicedPacket;
@@ -42,22 +44,37 @@ fn main() -> Result<(), Error> {
 
     let running = Arc::new(AtomicBool::new(true));
     let in_handler = running.clone();
+    let recv_loop = running.clone();
 
     ctrlc::set_handler(move || {
         in_handler.store(false, Ordering::SeqCst);
+        println!("Attempting shutdown...");
     })?;
 
-    let (sink, recv) = mpsc::sync_channel(32);
+    let (sink, recv) = mpsc::sync_channel(128);
 
     let worker = thread::spawn(|| read_packets(handle, sink, running));
 
-    while let Some(buf) = recv.recv().ok() {
-        file.write_all(&buf)?;
+    while recv_loop.load(Ordering::SeqCst) {
+        match recv.recv_timeout(Duration::from_secs(1)) {
+            Ok(buf) => file.write_all(&buf)?,
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
     }
 
     file.finish()?;
 
-    worker.join().expect("join")?;
+    println!("File closed, may block until next packet...");
+
+    // we're disconnected, so the worker has crashed/returned,
+    // or we've been signaled to stop, so the worker should also stop (on next packet)
+    worker
+        .join()
+        .expect("joining itself failed")
+        .with_context(|_| err_msg("worker failed"))?;
+
+    println!("Done.");
 
     Ok(())
 }
