@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::convert::TryInto;
@@ -68,9 +70,19 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
     let from = Dec::new(master, from)?;
     let from = Reader::new(from);
     let mut from = zstd::Decoder::new(from)?;
+
+    let mut hosts = HashMap::with_capacity(512);
+    let mut uas = HashMap::with_capacity(512);
+    let mut ins = HashMap::with_capacity(512);
+
+    let mut last = HashMap::with_capacity(512);
+
     loop {
         let mut record = [0u8; 256];
-        from.read_exact(&mut record)?;
+        if let Err(e) = from.read_exact(&mut record) {
+            eprintln!("input error: {:?}", e);
+            break;
+        }
 
         let sec = i64::from_le_bytes(record[..8].try_into().expect("fixed slice"));
         let usec = i64::from_le_bytes(record[8..16].try_into().expect("fixed slice"));
@@ -93,7 +105,41 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
                 continue;
             }
         };
+
+        let inbound = match data {
+            Recovered::Req(req) => {
+                if let Some(host) = req.host {
+                    hosts
+                        .entry(dst_ip)
+                        .or_insert_with(|| HashSet::with_capacity(2))
+                        .insert(host.to_string());
+                }
+
+                if let Some(ua) = req.ua {
+                    uas.entry(src_ip)
+                        .or_insert_with(|| HashSet::with_capacity(16))
+                        .insert(ua.to_string());
+                }
+
+                *ins.entry(dst_ip).or_insert(0u64) += 1;
+
+                true
+            }
+
+            Recovered::Resp(_resp) => false,
+        };
+
+        let tuple = if inbound {
+            (src_ip, src_port, dst_ip, dst_port)
+        } else {
+            (dst_ip, dst_port, src_ip, src_port)
+        };
+
+        last.insert(tuple, ());
     }
+
+    println!("{:#?}", hosts);
+    println!("{:#?}", ins);
 
     Ok(())
 }
