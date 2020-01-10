@@ -1,6 +1,9 @@
 use std::env;
 use std::fs;
+use std::io;
+use std::io::Read;
 use std::io::Write;
+use std::net;
 use std::slice;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
@@ -11,7 +14,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use std::net;
 
 use digest::Digest;
 use etherparse::InternetSlice;
@@ -20,7 +22,10 @@ use etherparse::TransportSlice;
 use failure::err_msg;
 use failure::Error;
 use failure::ResultExt;
+
+use crate::proto::Dec;
 use crate::proto::Enc;
+use crate::proto::Key;
 
 mod pcap;
 mod proto;
@@ -46,12 +51,15 @@ fn main() -> Result<(), Error> {
                         .required(true),
                 ),
         )
+        .subcommand(clap::SubCommand::with_name("decrypt"))
         .get_matches();
+
     let master_key = env::var("PCAP_MASTER_KEY").with_context(|_| "PCAP_MASTER_KEY must be set")?;
-    let master_key = sha2::Sha512Trunc256::digest(master_key.as_bytes());
+    let master_key: Key = sha2::Sha512Trunc256::digest(master_key.as_bytes()).into();
 
     let args = match args.subcommand() {
         ("capture", Some(args)) => args,
+        ("decrypt", _) => return decrypt(master_key.into()),
         (_, _) => unreachable!("bad subcommand"),
     };
 
@@ -71,8 +79,8 @@ fn main() -> Result<(), Error> {
     let dest = net::TcpStream::connect(dest)?;
     let dest = Enc::new(master_key.into(), dest)?;
     let mut dest = zstd::Encoder::new(dest, 3)?;
-    let handle =
-        pcap::open_with_filter("any", "port 80 or portrange 7999-31500").with_context(|_| err_msg("starting capture"))?;
+    let handle = pcap::open_with_filter("any", "port 80 or portrange 7999-31500")
+        .with_context(|_| err_msg("starting capture"))?;
 
     if args.is_present("daemon") {
         println!("Running in background...");
@@ -200,5 +208,17 @@ fn read_packets(
         }
     }
 
+    Ok(())
+}
+
+fn decrypt(master_key: Key) -> Result<(), Error> {
+    let stdin = io::stdin();
+    let stdin = stdin.lock();
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+    let mut dec = Dec::new(master_key, stdin)?;
+    while let Some(frame) = dec.read_frame()? {
+        stdout.write_all(&frame)?;
+    }
     Ok(())
 }

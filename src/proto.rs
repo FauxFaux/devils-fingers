@@ -11,7 +11,7 @@ use failure::ensure;
 use failure::Error;
 use generic_array::GenericArray;
 
-type Key = [u8; 32];
+pub(crate) type Key = [u8; 32];
 
 const MAGIC: [u8; 8] = *b"pcapdump";
 
@@ -102,13 +102,17 @@ impl<R: Read> Dec<R> {
         })
     }
 
-    pub fn read_frame(&mut self) -> Result<Vec<u8>, io::Error> {
+    pub fn read_frame(&mut self) -> Result<Option<Vec<u8>>, io::Error> {
         let mut len_bytes = [0u8; 2];
         self.inner.read_exact(&mut len_bytes)?;
         let len = usize::from(u16::from_le_bytes(len_bytes));
 
         let mut data = vec![0u8; len + 16];
-        self.inner.read_exact(&mut data)?;
+        match self.inner.read_exact(&mut data) {
+            Ok(()) => (),
+            Err(ref e) if io::ErrorKind::UnexpectedEof == e.kind() => return Ok(None),
+            Err(e) => return Err(e),
+        };
 
         let nonce = build_nonce(&self.nonce_base, self.ctr);
         self.ctr += 1;
@@ -120,7 +124,7 @@ impl<R: Read> Dec<R> {
                 aad: &len_bytes,
             },
         ) {
-            Ok(buf) => Ok(buf),
+            Ok(buf) => Ok(Some(buf)),
             Err(_) => Err(io::ErrorKind::InvalidData.into()),
         }
     }
@@ -134,6 +138,6 @@ fn round_trip() -> Result<(), Error> {
     enc.write_all(b"hai")?;
     assert_eq!(buf.len(), 8 + 16 + 2 + 3 + 16);
     let mut dec = Dec::new(master, io::Cursor::new(buf))?;
-    assert_eq!(b"hai", dec.read_frame()?.as_slice());
+    assert_eq!(b"hai", dec.read_frame()?.expect("frame").as_slice());
     Ok(())
 }
