@@ -27,6 +27,7 @@ use crate::proto::Dec;
 use crate::proto::Enc;
 use crate::proto::Key;
 
+mod flows;
 mod pcap;
 mod proto;
 
@@ -52,6 +53,15 @@ fn main() -> Result<(), Error> {
                 ),
         )
         .subcommand(clap::SubCommand::with_name("decrypt"))
+        .subcommand(
+            clap::SubCommand::with_name("flows").arg(
+                clap::Arg::with_name("file")
+                    .short("f")
+                    .multiple(true)
+                    .takes_value(true)
+                    .required(true),
+            ),
+        )
         .get_matches();
 
     let master_key = env::var("PCAP_MASTER_KEY").with_context(|_| "PCAP_MASTER_KEY must be set")?;
@@ -60,6 +70,12 @@ fn main() -> Result<(), Error> {
     let args = match args.subcommand() {
         ("capture", Some(args)) => args,
         ("decrypt", _) => return decrypt(master_key.into()),
+        ("flows", Some(args)) => {
+            return flows::flows(
+                master_key.into(),
+                args.values_of("file").expect("required arg").collect(),
+            )
+        }
         (_, _) => unreachable!("bad subcommand"),
     };
 

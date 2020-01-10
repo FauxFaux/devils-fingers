@@ -11,7 +11,7 @@ use failure::ensure;
 use failure::Error;
 use generic_array::GenericArray;
 
-pub(crate) type Key = [u8; 32];
+pub type Key = [u8; 32];
 
 const MAGIC: [u8; 8] = *b"pcapdump";
 
