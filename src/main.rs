@@ -72,7 +72,7 @@ fn main() -> Result<(), Error> {
     let dest = Enc::new(master_key.into(), dest)?;
     let mut dest = zstd::Encoder::new(dest, 3)?;
     let handle =
-        pcap::open_with_filter("any", &filter).with_context(|_| err_msg("starting capture"))?;
+        pcap::open_with_filter("any", "port 80 or portrange 7999-31500").with_context(|_| err_msg("starting capture"))?;
 
     if args.is_present("daemon") {
         println!("Running in background...");
