@@ -163,6 +163,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "devils-fingers"
+version = "0.1.0"
+dependencies = [
+ "aead",
+ "chacha20poly1305",
+ "clap",
+ "ctrlc",
+ "digest",
+ "etherparse",
+ "failure",
+ "generic-array",
+ "hex",
+ "libc",
+ "nix 0.16.1",
+ "rand",
+ "sha2",
+ "zstd",
+]
+
+[[package]]
 name = "digest"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -282,26 +302,6 @@ name = "opaque-debug"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2839e79665f131bdb5782e51f2c6c9599c133c6098982a54c794358bf432529c"
-
-[[package]]
-name = "pcap-http"
-version = "0.1.0"
-dependencies = [
- "aead",
- "chacha20poly1305",
- "clap",
- "ctrlc",
- "digest",
- "etherparse",
- "failure",
- "generic-array",
- "hex",
- "libc",
- "nix 0.16.1",
- "rand",
- "sha2",
- "zstd",
-]
 
 [[package]]
 name = "poly1305"
