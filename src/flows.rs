@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use std::fs;
 use std::io;
 use std::io::Read;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str;
 use std::str::FromStr;
 
@@ -67,6 +67,10 @@ impl<R: Read> Read for Reader<R> {
 }
 
 fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
+    let psl = publicsuffix::List::from_reader(io::Cursor::new(
+        &include_bytes!("../public_suffix_list.dat")[..],
+    ))
+    .expect("parsing static buffer");
     let from = Dec::new(master, from)?;
     let from = Reader::new(from);
     let mut from = zstd::Decoder::new(from)?;
@@ -141,7 +145,37 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
     println!("{:#?}", hosts);
     println!("{:#?}", ins);
 
+    for (addr, hosts) in &hosts {
+        let nice: Vec<_> = hosts
+            .iter()
+            .filter(|host| {
+                !(host.is_empty()
+                    || public_domain(&psl, host)
+                    || SocketAddrV4::from_str(host).is_ok()
+                    || Ipv4Addr::from_str(host).is_ok())
+            })
+            .collect();
+
+        match nice.len() {
+            0 => println!("{}: no matches: {:?}", addr, hosts),
+            1 => println!("{}: ding! {}", addr, nice.into_iter().next().unwrap()),
+            _ => println!("{}: m-m-m-multi matches: {:?}", addr, hosts),
+        }
+    }
+
     Ok(())
+}
+
+fn public_domain(psl: &publicsuffix::List, domain: &str) -> bool {
+    if let Ok(domain) = psl.parse_dns_name(domain) {
+        if let Some(domain) = domain.domain() {
+            domain.has_known_suffix()
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

@@ -17,6 +17,7 @@ generic-array = "0.12"
 httparse = "1"
 libc = "0.2"
 nix = "0.16"
+publicsuffix = { version = "1", default-features = false }
 rand = "0.7"
 sha2 = "0.8"
 zstd = "0.5"
