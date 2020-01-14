@@ -145,11 +145,15 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
     println!("{:#?}", hosts);
     println!("{:#?}", ins);
 
+    let mut pod_lookup = HashMap::with_capacity(hosts.len() / 2);
+
     for (addr, hosts) in &hosts {
         let nice: Vec<_> = hosts
             .iter()
             .filter(|host| {
                 !(host.is_empty()
+                    || "localhost" == *host
+                    || host.starts_with("localhost:")
                     || public_domain(&psl, host)
                     || SocketAddrV4::from_str(host).is_ok()
                     || Ipv4Addr::from_str(host).is_ok())
@@ -158,10 +162,17 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
 
         match nice.len() {
             0 => println!("{}: no matches: {:?}", addr, hosts),
-            1 => println!("{}: ding! {}", addr, nice.into_iter().next().unwrap()),
+            1 => {
+                pod_lookup.insert(
+                    addr.to_owned(),
+                    nice.into_iter().next().expect("length checked"),
+                );
+            }
             _ => println!("{}: m-m-m-multi matches: {:?}", addr, hosts),
         }
     }
+
+    println!("{:#?}", pod_lookup);
 
     Ok(())
 }
