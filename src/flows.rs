@@ -146,7 +146,7 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
                 Recovered::Req(req) => {
                     println!(
                         "{:?}: duplicate request: {:?} replacing {:?}",
-                        tuple,
+                        (sec, usec, tuple),
                         req,
                         occ.get()
                     );
@@ -154,7 +154,7 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
                 }
                 Recovered::Resp(resp) => {
                     let req = occ.remove();
-                    println!("{:?}: pair! {:?} {:?}", tuple, req, resp);
+                    println!("{:?}: pair! {:?} {:?}", (sec, usec, tuple), req, resp);
                 }
             },
 
@@ -162,7 +162,9 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
                 Recovered::Req(req) => {
                     vac.insert(req.to_owned());
                 }
-                Recovered::Resp(resp) => println!("{:?}: response with no request", tuple),
+                Recovered::Resp(resp) => {
+                    println!("{:?}: response with no request", (sec, usec, tuple))
+                }
             },
         }
     }
