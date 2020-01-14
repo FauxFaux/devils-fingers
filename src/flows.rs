@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -6,7 +7,8 @@ use std::convert::TryInto;
 use std::fs;
 use std::io;
 use std::io::Read;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::Ipv4Addr;
+use std::net::SocketAddrV4;
 use std::str;
 use std::str::FromStr;
 
@@ -139,7 +141,30 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
             (dst_ip, dst_port, src_ip, src_port)
         };
 
-        last.insert(tuple, ());
+        match last.entry(tuple) {
+            Entry::Occupied(mut occ) => match data {
+                Recovered::Req(req) => {
+                    println!(
+                        "{:?}: duplicate request: {:?} replacing {:?}",
+                        tuple,
+                        req,
+                        occ.get()
+                    );
+                    occ.insert(req.to_owned());
+                }
+                Recovered::Resp(resp) => {
+                    let req = occ.remove();
+                    println!("{:?}: pair! {:?} {:?}", tuple, req, resp);
+                }
+            },
+
+            Entry::Vacant(mut vac) => match data {
+                Recovered::Req(req) => {
+                    vac.insert(req.to_owned());
+                }
+                Recovered::Resp(resp) => println!("{:?}: response with no request", tuple),
+            },
+        }
     }
 
     println!("{:#?}", hosts);
@@ -205,7 +230,7 @@ enum Recovered<'s> {
     Resp(Resp<'s>),
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 struct Req<'s> {
     method: Method,
     path: &'s str,
@@ -213,7 +238,26 @@ struct Req<'s> {
     ua: Option<&'s str>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone, Debug)]
+struct ReqO {
+    method: Method,
+    path: String,
+    host: Option<String>,
+    ua: Option<String>,
+}
+
+impl Req<'_> {
+    fn to_owned(&self) -> ReqO {
+        ReqO {
+            method: self.method,
+            path: self.path.to_owned(),
+            host: self.host.map(|v| v.to_owned()),
+            ua: self.ua.map(|v| v.to_owned()),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
 struct Resp<'s> {
     status: u16,
     content_type: Option<&'s str>,
