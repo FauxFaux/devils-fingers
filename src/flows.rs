@@ -141,31 +141,30 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
             (dst_ip, dst_port, src_ip, src_port)
         };
 
-        match last.entry(tuple) {
-            Entry::Occupied(mut occ) => match data {
-                Recovered::Req(req) => {
-                    println!(
-                        "{:?}: duplicate request: {:?} replacing {:?}",
-                        (sec, usec, tuple),
-                        req,
-                        occ.get()
-                    );
-                    occ.insert(req.to_owned());
-                }
-                Recovered::Resp(resp) => {
-                    let req = occ.remove();
-                    println!("{:?}: pair! {:?} {:?}", (sec, usec, tuple), req, resp);
-                }
-            },
+        let seen = last.entry(tuple).or_insert_with(|| Vec::with_capacity(3));
 
-            Entry::Vacant(mut vac) => match data {
-                Recovered::Req(req) => {
-                    vac.insert(req.to_owned());
+        println!("{:?} {:?}: data {:?}", (sec, usec), tuple, data);
+
+        match data {
+            Recovered::Req(req) => seen.push(req.to_owned()),
+            Recovered::Resp(resp) => match seen.pop() {
+                Some(req) if seen.is_empty() => {
+                    println!("{:?} {:?}: pair {:?} {:?}", (sec, usec), tuple, req, resp);
                 }
-                Recovered::Resp(resp) => {
-                    println!("{:?}: response with no request", (sec, usec, tuple))
+                Some(_req) => {
+                    // we saw a response to a request, but it was phantom
                 }
+                None => println!(
+                    "{:?} {:?}: response with no request: {:?}",
+                    (sec, usec),
+                    tuple,
+                    resp
+                ),
             },
+        }
+
+        if seen.is_empty() {
+            last.remove(&tuple);
         }
     }
 
@@ -226,7 +225,7 @@ enum Method {
     Patch,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 enum Recovered<'s> {
     Req(Req<'s>),
     Resp(Resp<'s>),
