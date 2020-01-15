@@ -83,12 +83,28 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
 
     let mut last = HashMap::with_capacity(512);
 
+    let mut previous: Option<[u8; 256]> = None;
+
     loop {
         let mut record = [0u8; 256];
         if let Err(e) = from.read_exact(&mut record) {
             eprintln!("input error: {:?}", e);
             break;
         }
+
+        // if the last record we processed was equal to this one, excluding the timestamp, skip it
+        // we see these duplicates a lot. I'm suspecting some kind of routing shenanigans, we
+        // observe it as it passes out of a container to the host, then again as it passes back in?
+        // I have no proof of this claim. I'm yet to see any that aren't adjacent.
+        // Guess is based mostly on the two-digit-nano times between the packet hops, and the
+        // ordering/clustering; e.g. three in, then three out.
+        if let Some(previous) = previous {
+            if record[16..] == previous[16..] {
+                continue;
+            }
+        }
+
+        previous = Some(record);
 
         let sec = i64::from_le_bytes(record[..8].try_into().expect("fixed slice"));
         let usec = i64::from_le_bytes(record[8..16].try_into().expect("fixed slice"));
