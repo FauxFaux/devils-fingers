@@ -53,6 +53,7 @@ fn main() -> Result<(), Error> {
                 ),
         )
         .subcommand(clap::SubCommand::with_name("decrypt"))
+        .subcommand(clap::SubCommand::with_name("efficiency"))
         .subcommand(
             clap::SubCommand::with_name("flows").arg(
                 clap::Arg::with_name("file")
@@ -70,6 +71,7 @@ fn main() -> Result<(), Error> {
     let args = match args.subcommand() {
         ("capture", Some(args)) => args,
         ("decrypt", _) => return decrypt(master_key.into()),
+        ("efficiency", _) => return efficiency(master_key.into()),
         ("flows", Some(args)) => {
             return flows::flows(
                 master_key.into(),
@@ -94,6 +96,7 @@ fn main() -> Result<(), Error> {
     let dest = args.value_of("dest").expect("required param");
     let dest = net::TcpStream::connect(dest)?;
     let dest = Enc::new(master_key.into(), dest)?;
+    let dest = io::BufWriter::with_capacity(60 * 1024, dest);
     let mut dest = zstd::Encoder::new(dest, 3)?;
     let handle = pcap::open_with_filter("any", "port 80 or portrange 7999-31500")
         .with_context(|_| err_msg("starting capture"))?;
@@ -236,5 +239,22 @@ fn decrypt(master_key: Key) -> Result<(), Error> {
     while let Some(frame) = dec.read_frame()? {
         stdout.write_all(&frame)?;
     }
+    Ok(())
+}
+
+fn efficiency(master_key: Key) -> Result<(), Error> {
+    use std::convert::TryFrom;
+    let stdin = io::stdin();
+    let stdin = stdin.lock();
+    let stdout = io::stdout();
+    let mut stdout = stdout.lock();
+    let mut dec = Dec::new(master_key, stdin)?;
+    let mut total_bytes = 0;
+    let mut frames = 0u64;
+    while let Some(Some(frame)) = dec.read_frame().ok() {
+        total_bytes += u64::try_from(frame.len())?;
+        frames += 1;
+    }
+    println!("{} {}", frames, total_bytes);
     Ok(())
 }

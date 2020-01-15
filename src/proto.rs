@@ -42,8 +42,8 @@ impl<W: Write> Write for Enc<W> {
             return Ok(0);
         }
 
-        let data = &data[..data.len().min(65000)];
-        let len = u16::try_from(data.len()).expect("clamped to 65k");
+        let data = &data[..data.len().min(62 * 1024)];
+        let len = u16::try_from(data.len()).expect("clamped to 62k");
 
         let nonce = build_nonce(&self.nonce_base, self.ctr);
 
