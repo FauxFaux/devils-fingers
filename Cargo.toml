@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 aead = "0.2"
 chacha20poly1305 = "0.3"
+chrono = "0.4"
 clap = "2"
 ctrlc = { version = "3", features = ["termination"] }
 digest = "0.8"

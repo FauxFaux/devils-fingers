@@ -23,6 +23,7 @@ use httparse::Response;
 
 use crate::proto::Dec;
 use crate::proto::Key;
+use chrono::NaiveDateTime;
 
 pub fn flows(master: Key, files: Vec<&str>) -> Result<(), Error> {
     for file in files {
@@ -68,6 +69,15 @@ impl<R: Read> Read for Reader<R> {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+struct Stats {
+    records: u64,
+    duplicates_after_time: u64,
+    parse_error: u64,
+    rogue_req: u64,
+    rogue_resp: u64,
+}
+
 fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
     let psl = publicsuffix::List::from_reader(io::Cursor::new(
         &include_bytes!("../public_suffix_list.dat")[..],
@@ -84,6 +94,9 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
     let mut last = HashMap::with_capacity(512);
 
     let mut previous: Option<[u8; 256]> = None;
+    let mut stats = Stats::default();
+
+    let mut valid_transactions = Vec::with_capacity(1024);
 
     loop {
         let mut record = [0u8; 256];
@@ -91,6 +104,8 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
             eprintln!("input error: {:?}", e);
             break;
         }
+
+        stats.records += 1;
 
         // if the last record we processed was equal to this one, excluding the timestamp, skip it
         // we see these duplicates a lot. I'm suspecting some kind of routing shenanigans, we
@@ -100,6 +115,7 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
         // ordering/clustering; e.g. three in, then three out.
         if let Some(previous) = previous {
             if record[16..] == previous[16..] {
+                stats.duplicates_after_time += 1;
                 continue;
             }
         }
@@ -123,67 +139,61 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
         let data = match parse(data) {
             Ok(data) => data,
             Err(e) => {
+                stats.parse_error += 1;
                 eprintln!("{:?} parsing {:?}", e, String::from_utf8_lossy(data));
                 continue;
             }
         };
 
-        let inbound = match data {
-            Recovered::Req(req) => {
-                if let Some(host) = req.host {
-                    hosts
-                        .entry(dst_ip)
-                        .or_insert_with(|| HashSet::with_capacity(2))
-                        .insert(host.to_string());
-                }
+        let time = (sec, usec);
 
-                if let Some(ua) = req.ua {
-                    uas.entry(src_ip)
-                        .or_insert_with(|| HashSet::with_capacity(16))
-                        .insert(ua.to_string());
-                }
-
-                *ins.entry(dst_ip).or_insert(0u64) += 1;
-
-                true
+        if let Recovered::Req(req) = data {
+            if let Some(host) = req.host {
+                hosts
+                    .entry(dst_ip)
+                    .or_insert_with(|| HashSet::with_capacity(2))
+                    .insert(host.to_string());
             }
 
-            Recovered::Resp(_resp) => false,
-        };
+            if let Some(ua) = req.ua {
+                uas.entry(src_ip)
+                    .or_insert_with(|| HashSet::with_capacity(16))
+                    .insert(ua.to_string());
+            }
 
-        let tuple = if inbound {
-            (src_ip, src_port, dst_ip, dst_port)
-        } else {
-            (dst_ip, dst_port, src_ip, src_port)
-        };
-
-        let seen = last.entry(tuple).or_insert_with(|| Vec::with_capacity(3));
-
-        println!("{:?} {:?}: data {:?}", (sec, usec), tuple, data);
-
-        match data {
-            Recovered::Req(req) => seen.push(req.to_owned()),
-            Recovered::Resp(resp) => match seen.pop() {
-                Some(req) if seen.is_empty() => {
-                    println!("{:?} {:?}: pair {:?} {:?}", (sec, usec), tuple, req, resp);
-                }
-                Some(_req) => {
-                    // we saw a response to a request, but it was phantom
-                }
-                None => println!(
-                    "{:?} {:?}: response with no request: {:?}",
-                    (sec, usec),
-                    tuple,
-                    resp
-                ),
-            },
+            *ins.entry(dst_ip).or_insert(0u64) += 1;
         }
 
-        if seen.is_empty() {
-            last.remove(&tuple);
+        let tuple = match data {
+            Recovered::Req(_) => (src_ip, src_port, dst_ip, dst_port),
+            Recovered::Resp(_) => (dst_ip, dst_port, src_ip, src_port),
+        };
+
+        match data {
+            Recovered::Req(req) => {
+                if let Some(original) = last.insert(tuple, (time, req.to_owned())) {
+                    stats.rogue_req += 1;
+                    println!("duplicate req");
+                }
+            }
+            Recovered::Resp(resp) => match last.remove(&tuple) {
+                Some((start_time, req)) => {
+                    valid_transactions.push((start_time, time, tuple, req, resp));
+                }
+                None => {
+                    stats.rogue_resp += 1;
+                    println!(
+                        "{:?} {:?}: response with no request: {:?}",
+                        (sec, usec),
+                        tuple,
+                        resp
+                    )
+                }
+            },
         }
     }
 
+    println!("{:#?}", stats);
     println!("{:#?}", hosts);
     println!("{:#?}", ins);
 
@@ -216,6 +226,25 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
 
     println!("{:#?}", pod_lookup);
 
+    for (start, end, (from, from_port, to, to_port), req, resp) in valid_transactions {
+        let start = NaiveDateTime::from_timestamp(start.0, u32::try_from(start.1)? * 1000);
+        let end = NaiveDateTime::from_timestamp(end.0, u32::try_from(end.1)? * 1000);
+        let duration = end.signed_duration_since(start).num_milliseconds();
+        let from = pod_lookup
+            .get(&from)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| from.to_string());
+        let to = pod_lookup
+            .get(&to)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| to.to_string());
+        let method = format!("{:?}", req.method).to_ascii_uppercase();
+        println!(
+            "{} ({:5}ms) {:20} {:20} {:6} {:3} {:?}",
+            start, duration, from, to, method, resp.status, req.path
+        );
+    }
+
     Ok(())
 }
 
@@ -241,10 +270,10 @@ enum Method {
     Patch,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 enum Recovered<'s> {
     Req(Req<'s>),
-    Resp(Resp<'s>),
+    Resp(Resp),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -274,10 +303,10 @@ impl Req<'_> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-struct Resp<'s> {
+#[derive(Clone, Debug)]
+struct Resp {
     status: u16,
-    content_type: Option<&'s str>,
+    content_type: Option<String>,
     length: Option<u64>,
 }
 
@@ -289,7 +318,7 @@ fn parse(data: &[u8]) -> Result<Recovered, Error> {
         let status = resp.code.ok_or_else(|| err_msg("no code?"))?;
         Ok(Recovered::Resp(Resp {
             status,
-            content_type: find_header("content-type", &headers),
+            content_type: find_header("content-type", &headers).map(|v| v.to_string()),
             length: find_header("content-length", &headers).and_then(|v| u64::from_str(v).ok()),
         }))
     } else {
