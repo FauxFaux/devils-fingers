@@ -1,0 +1,7 @@
+{
+  "name": "extract-spec",
+  "scripts": {},
+  "dependencies": {
+    "typescript": "^3.7.4"
+  }
+}
