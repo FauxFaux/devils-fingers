@@ -63,10 +63,10 @@ where
     let from = Dec::new(master, from)?;
     let from = Reader::new(from);
     let mut from = zstd::Decoder::new(from)?;
-    let mut previous: Option<[u8; 256]> = None;
+    let mut previous: Option<[u8; 512]> = None;
 
     loop {
-        let mut record = [0u8; 256];
+        let mut record = [0u8; 512];
         if let Err(e) = from.read_exact(&mut record) {
             eprintln!("input error: {:?}", e);
             break;
@@ -87,21 +87,16 @@ where
         previous = Some(record);
 
         let when = {
-            let sec = i64::from_le_bytes(record[..8].try_into().expect("fixed slice"));
-            let usec = i64::from_le_bytes(record[8..16].try_into().expect("fixed slice"));
-            NaiveDateTime::from_timestamp(sec, u32::try_from(usec)? * 1000)
+            let usec = u64::from_le_bytes(record[..8].try_into().expect("fixed slice"));
+            let sec = i64::try_from(usec / 1_000_000)?;
+            let usec = u32::try_from(usec % 1_000_000)?;
+            NaiveDateTime::from_timestamp(sec, usec * 1000)
         };
 
-        let src_ip: [u8; 4] = record[16..20].try_into().expect("fixed slice");
-        let src_ip = Ipv4Addr::from(src_ip);
-        let dst_ip: [u8; 4] = record[20..24].try_into().expect("fixed slice");
-        let dst_ip = Ipv4Addr::from(dst_ip);
-        let src_port = u16::from_le_bytes(record[24..26].try_into().expect("fixed slice"));
-        let dst_port = u16::from_le_bytes(record[26..28].try_into().expect("fixed slice"));
-        let src = SocketAddrV4::new(src_ip, src_port);
-        let dest = SocketAddrV4::new(dst_ip, dst_port);
+        let src = read_addr(&record[8..14]);
+        let dest = read_addr(&record[14..20]);
 
-        let data = &record[28..];
+        let data = &record[20..];
 
         into(Record {
             when,
@@ -112,4 +107,12 @@ where
     }
 
     Ok(())
+}
+
+fn read_addr(data: &[u8]) -> SocketAddrV4 {
+    assert_eq!(6, data.len());
+    SocketAddrV4::new(
+        Ipv4Addr::new(data[0], data[1], data[2], data[3]),
+        u16::from_le_bytes(data[4..6].try_into().expect("fixed slice")),
+    )
 }

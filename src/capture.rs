@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::io;
 use std::io::Write;
 use std::net;
@@ -84,7 +85,7 @@ pub fn run_capture(master_key: Key, filter: &str, dest: &str, daemon: bool) -> R
 
 fn read_packets(
     mut handle: pcap::PCap,
-    sink: mpsc::SyncSender<[u8; 256]>,
+    sink: mpsc::SyncSender<[u8; 512]>,
     running: Arc<AtomicBool>,
 ) -> Result<(), Error> {
     while running.load(Ordering::SeqCst) {
@@ -94,9 +95,17 @@ fn read_packets(
             Some(d) => d,
             None => continue,
         };
-        let libc::timeval { tv_sec, tv_usec } = unsafe { (*header).ts };
-        let _: i64 = tv_sec;
-        let _: i64 = tv_usec;
+
+        let ts = {
+            let ts = unsafe { &(*header).ts };
+            u64::try_from(
+                ts.tv_sec
+                    .checked_mul(1_000_000)
+                    .ok_or_else(|| err_msg("tv_sec out of range"))?
+                    .checked_add(ts.tv_usec)
+                    .ok_or_else(|| err_msg("tv_sec+tv_usec out of range"))?,
+            )?
+        };
 
         let data = unsafe { slice::from_raw_parts(data, (*header).caplen as usize) };
 
@@ -140,14 +149,13 @@ fn read_packets(
             _ => continue,
         };
 
-        let mut record = [0u8; 8 + 8 + 4 + 4 + 2 + 2 + 228];
-        record[..8].copy_from_slice(&tv_sec.to_le_bytes());
-        record[8..16].copy_from_slice(&tv_usec.to_le_bytes());
-        record[16..20].copy_from_slice(src_ip);
-        record[20..24].copy_from_slice(dest_ip);
-        record[24..26].copy_from_slice(&t.source_port().to_le_bytes());
-        const HEADER_END: usize = 28;
-        record[26..HEADER_END].copy_from_slice(&t.destination_port().to_le_bytes());
+        let mut record = [0u8; 8 + 4 + 4 + 2 + 2 + 492];
+        record[..8].copy_from_slice(&ts.to_le_bytes());
+        record[8..12].copy_from_slice(src_ip);
+        record[12..14].copy_from_slice(&t.source_port().to_le_bytes());
+        record[14..18].copy_from_slice(dest_ip);
+        const HEADER_END: usize = 20;
+        record[18..HEADER_END].copy_from_slice(&t.destination_port().to_le_bytes());
         let usable = (data.len()).min(record.len() - HEADER_END);
         record[HEADER_END..HEADER_END + usable].copy_from_slice(&data[..usable]);
 
