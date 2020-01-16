@@ -78,25 +78,23 @@ struct Stats {
     rogue_resp: u64,
 }
 
-fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
-    let psl = publicsuffix::List::from_reader(io::Cursor::new(
-        &include_bytes!("../public_suffix_list.dat")[..],
-    ))
-    .expect("parsing static buffer");
+struct Record<'b> {
+    when: NaiveDateTime,
+    src: SocketAddrV4,
+    dest: SocketAddrV4,
+    data: &'b [u8],
+}
+
+fn process_loop<R: Read, F>(master: Key, from: R, mut into: F) -> Result<Stats, Error>
+where
+    F: FnMut(Record<'_>) -> Result<(), Error>,
+{
     let from = Dec::new(master, from)?;
     let from = Reader::new(from);
     let mut from = zstd::Decoder::new(from)?;
-
-    let mut hosts = HashMap::with_capacity(512);
-    let mut uas = HashMap::with_capacity(512);
-    let mut ins = HashMap::with_capacity(512);
-
-    let mut last = HashMap::with_capacity(512);
-
     let mut previous: Option<[u8; 256]> = None;
-    let mut stats = Stats::default();
 
-    let mut valid_transactions = Vec::with_capacity(1024);
+    let mut stats = Stats::default();
 
     loop {
         let mut record = [0u8; 256];
@@ -122,15 +120,51 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
 
         previous = Some(record);
 
-        let sec = i64::from_le_bytes(record[..8].try_into().expect("fixed slice"));
-        let usec = i64::from_le_bytes(record[8..16].try_into().expect("fixed slice"));
+        let when = {
+            let sec = i64::from_le_bytes(record[..8].try_into().expect("fixed slice"));
+            let usec = i64::from_le_bytes(record[8..16].try_into().expect("fixed slice"));
+            NaiveDateTime::from_timestamp(sec, u32::try_from(usec)? * 1000)
+        };
+
         let src_ip: [u8; 4] = record[16..20].try_into().expect("fixed slice");
         let src_ip = Ipv4Addr::from(src_ip);
         let dst_ip: [u8; 4] = record[20..24].try_into().expect("fixed slice");
         let dst_ip = Ipv4Addr::from(dst_ip);
         let src_port = u16::from_le_bytes(record[24..26].try_into().expect("fixed slice"));
         let dst_port = u16::from_le_bytes(record[26..28].try_into().expect("fixed slice"));
-        let mut data = &record[28..];
+        let src = SocketAddrV4::new(src_ip, src_port);
+        let dest = SocketAddrV4::new(dst_ip, dst_port);
+
+        let data = &record[28..];
+
+        into(Record {
+            when,
+            src,
+            dest,
+            data,
+        })?;
+    }
+
+    Ok(stats)
+}
+
+fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
+    let psl = publicsuffix::List::from_reader(io::Cursor::new(
+        &include_bytes!("../public_suffix_list.dat")[..],
+    ))
+    .expect("parsing static buffer");
+
+    let mut hosts = HashMap::with_capacity(512);
+    let mut uas = HashMap::with_capacity(512);
+    let mut ins = HashMap::with_capacity(512);
+
+    let mut last = HashMap::with_capacity(512);
+
+    let mut stats = Stats::default();
+
+    let mut valid_transactions = Vec::with_capacity(1024);
+    process_loop(master, from, |record| {
+        let mut data = record.data;
 
         // strip everything after the first null
         if let Some(i) = data.iter().position(|&c| c == 0) {
@@ -141,32 +175,32 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
             Err(e) => {
                 stats.parse_error += 1;
                 eprintln!("{:?} parsing {:?}", e, String::from_utf8_lossy(data));
-                continue;
+                return Ok(());
             }
         };
 
-        let time = (sec, usec);
+        let time = record.when;
 
         if let Recovered::Req(req) = data {
             if let Some(host) = req.host {
                 hosts
-                    .entry(dst_ip)
+                    .entry(record.dest.ip().to_owned())
                     .or_insert_with(|| HashSet::with_capacity(2))
                     .insert(host.to_string());
             }
 
             if let Some(ua) = req.ua {
-                uas.entry(src_ip)
+                uas.entry(record.src.ip().to_owned())
                     .or_insert_with(|| HashSet::with_capacity(16))
                     .insert(ua.to_string());
             }
 
-            *ins.entry(dst_ip).or_insert(0u64) += 1;
+            *ins.entry(record.dest.ip().to_owned()).or_insert(0u64) += 1;
         }
 
         let tuple = match data {
-            Recovered::Req(_) => (src_ip, src_port, dst_ip, dst_port),
-            Recovered::Resp(_) => (dst_ip, dst_port, src_ip, src_port),
+            Recovered::Req(_) => (record.src, record.dest),
+            Recovered::Resp(_) => (record.dest, record.src),
         };
 
         match data {
@@ -184,14 +218,13 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
                     stats.rogue_resp += 1;
                     println!(
                         "{:?} {:?}: response with no request: {:?}",
-                        (sec, usec),
-                        tuple,
-                        resp
+                        record.when, tuple, resp
                     )
                 }
             },
         }
-    }
+        Ok(())
+    })?;
 
     println!("{:#?}", stats);
     println!("{:#?}", hosts);
@@ -226,16 +259,14 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
 
     println!("{:#?}", pod_lookup);
 
-    for (start, end, (from, from_port, to, to_port), req, resp) in valid_transactions {
-        let start = NaiveDateTime::from_timestamp(start.0, u32::try_from(start.1)? * 1000);
-        let end = NaiveDateTime::from_timestamp(end.0, u32::try_from(end.1)? * 1000);
+    for (start, end, (from, to), req, resp) in valid_transactions {
         let duration = end.signed_duration_since(start).num_milliseconds();
         let from = pod_lookup
-            .get(&from)
+            .get(from.ip())
             .map(|v| v.to_string())
             .unwrap_or_else(|| from.to_string());
         let to = pod_lookup
-            .get(&to)
+            .get(to.ip())
             .map(|v| v.to_string())
             .unwrap_or_else(|| to.to_string());
         let method = format!("{:?}", req.method).to_ascii_uppercase();
