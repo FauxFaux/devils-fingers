@@ -13,6 +13,7 @@ mod capture;
 mod flows;
 mod proto;
 mod read;
+mod spec;
 
 fn main() -> Result<(), Error> {
     let args = clap::App::new(clap::crate_name!())
@@ -61,6 +62,7 @@ fn main() -> Result<(), Error> {
         ("efficiency", _) => efficiency(master_key.into()),
         ("flows", Some(args)) => flows::flows(
             master_key.into(),
+            spec::load()?,
             args.values_of("file").expect("required arg").collect(),
         ),
         (_, _) => unreachable!("bad subcommand"),

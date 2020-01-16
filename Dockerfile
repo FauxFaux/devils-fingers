@@ -13,5 +13,9 @@ RUN cd libpcap-1.8.1 && make -j$(nproc) && make install
 RUN cd /tmp && \
     USER=foo cargo init --bin awa && \
     cd awa && \
-    printf 'failure = "*"\nclap = "*"\nzstd = "*"' >> Cargo.toml && \
+    printf '%s = "*"\n' \
+        chacha20poly1305 chrono clap ctrlc \
+        failure publicsuffix rand \
+        serde_derive serde_json zstd \
+            >> Cargo.toml && \
     cargo fetch

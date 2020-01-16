@@ -18,10 +18,11 @@ use httparse::Response;
 
 use crate::proto::Key;
 use crate::read;
+use crate::spec::Spec;
 
-pub fn flows(master: Key, files: Vec<&str>) -> Result<(), Error> {
+pub fn flows(master: Key, spec: Spec, files: Vec<&str>) -> Result<(), Error> {
     for file in files {
-        process(master, fs::File::open(file)?)?;
+        process(master, &spec, fs::File::open(file)?)?;
     }
     Ok(())
 }
@@ -35,7 +36,7 @@ struct Stats {
     rogue_resp: u64,
 }
 
-fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
+fn process<R: Read>(master: Key, spec: &Spec, from: R) -> Result<(), Error> {
     let psl = publicsuffix::List::from_reader(io::Cursor::new(
         &include_bytes!("../public_suffix_list.dat")[..],
     ))
