@@ -10,12 +10,12 @@ const services = [];
 
 for (const no of spec.no.items) {
   nodes.push({
-      name: no.metadata.name,
-      created: no.metadata.creationTimestamp,
-      podCidr: no.spec.podCIDR,
-      internalIp: find_where(no.status.addresses, "type", "InternalIP").address,
-      externalIp: find_where(no.status.addresses, "type", "ExternalIP").address,
-    });
+    name: no.metadata.name,
+    created: no.metadata.creationTimestamp,
+    podCidr: no.spec.podCIDR,
+    internalIp: find_where(no.status.addresses, 'type', 'InternalIP').address,
+    externalIp: find_where(no.status.addresses, 'type', 'ExternalIP').address,
+  });
 }
 
 for (const svc of spec.svc.items) {
@@ -27,7 +27,7 @@ for (const svc of spec.svc.items) {
     name: svc.metadata.name,
     created: svc.metadata.creationTimestamp,
     ip: svc.spec.clusterIP,
-  })
+  });
 }
 
 for (const po of spec.po.items) {
@@ -40,7 +40,7 @@ for (const po of spec.po.items) {
   });
 }
 
-console.log(JSON.stringify({now: spec.now, nodes, pods, services}))
+console.log(JSON.stringify({ now: spec.now, nodes, pods, services }));
 
 function find_where(list, key, value) {
   for (const obj of list) {

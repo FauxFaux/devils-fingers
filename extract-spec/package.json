@@ -1,6 +1,8 @@
 {
   "name": "extract-spec",
-  "scripts": {},
+  "scripts": {
+    "format": "npx prettier --write '*.ts'"
+  },
   "dependencies": {
     "typescript": "^3.7.4"
   }
