@@ -12,6 +12,7 @@ use crate::proto::Key;
 mod capture;
 mod flows;
 mod proto;
+mod read;
 
 fn main() -> Result<(), Error> {
     let args = clap::App::new(clap::crate_name!())
