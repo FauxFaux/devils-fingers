@@ -1,11 +1,8 @@
 use std::env;
-use std::fs;
 use std::io;
-use std::io::Read;
 use std::io::Write;
 use std::net;
 use std::slice;
-use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
@@ -43,14 +40,7 @@ fn main() -> Result<(), Error> {
                         .takes_value(true)
                         .required(true),
                 )
-                .arg(
-                    clap::Arg::with_name("port")
-                        .short("p")
-                        .long("port")
-                        .multiple(true)
-                        .value_delimiter(",")
-                        .required(true),
-                ),
+                .arg(clap::Arg::with_name("filter").long("filter").required(true)),
         )
         .subcommand(clap::SubCommand::with_name("decrypt"))
         .subcommand(clap::SubCommand::with_name("efficiency"))
@@ -81,25 +71,15 @@ fn main() -> Result<(), Error> {
         (_, _) => unreachable!("bad subcommand"),
     };
 
-    let ports: Vec<u16> = args
-        .values_of("port")
-        .expect("required arg")
-        .map(|v| u16::from_str(v).expect("invalid port number"))
-        .collect();
-
-    let filter = ports
-        .into_iter()
-        .map(|p| format!("tcp port {}", p))
-        .collect::<Vec<String>>()
-        .join(" or ");
+    let filter = args.value_of("filter").expect("required param");
 
     let dest = args.value_of("dest").expect("required param");
     let dest = net::TcpStream::connect(dest)?;
     let dest = Enc::new(master_key.into(), dest)?;
     let dest = io::BufWriter::with_capacity(60 * 1024, dest);
     let mut dest = zstd::Encoder::new(dest, 3)?;
-    let handle = pcap::open_with_filter("any", "port 80 or portrange 7999-31500")
-        .with_context(|_| err_msg("starting capture"))?;
+    let handle =
+        pcap::open_with_filter("any", filter).with_context(|_| err_msg("starting capture"))?;
 
     if args.is_present("daemon") {
         println!("Running in background...");
@@ -246,8 +226,6 @@ fn efficiency(master_key: Key) -> Result<(), Error> {
     use std::convert::TryFrom;
     let stdin = io::stdin();
     let stdin = stdin.lock();
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
     let mut dec = Dec::new(master_key, stdin)?;
     let mut total_bytes = 0;
     let mut frames = 0u64;

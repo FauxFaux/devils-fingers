@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
@@ -16,7 +15,6 @@ use failure::bail;
 use failure::err_msg;
 use failure::format_err;
 use failure::Error;
-use failure::ResultExt;
 use httparse::Header;
 use httparse::Request;
 use httparse::Response;
@@ -205,7 +203,7 @@ fn process<R: Read>(master: Key, from: R) -> Result<(), Error> {
 
         match data {
             Recovered::Req(req) => {
-                if let Some(original) = last.insert(tuple, (time, req.to_owned())) {
+                if let Some(_original) = last.insert(tuple, (time, req.to_owned())) {
                     stats.rogue_req += 1;
                     println!("duplicate req");
                 }
@@ -345,7 +343,7 @@ fn parse(data: &[u8]) -> Result<Recovered, Error> {
     let mut headers = [httparse::EMPTY_HEADER; 32];
     if data.starts_with(b"HTTP") {
         let mut resp = Response::new(&mut headers);
-        let complete = resp.parse(data)?.is_complete();
+        let _complete = resp.parse(data)?.is_complete();
         let status = resp.code.ok_or_else(|| err_msg("no code?"))?;
         Ok(Recovered::Resp(Resp {
             status,
@@ -354,7 +352,7 @@ fn parse(data: &[u8]) -> Result<Recovered, Error> {
         }))
     } else {
         let mut req = Request::new(&mut headers);
-        let complete = req.parse(data)?.is_complete();
+        req.parse(data)?;
         let method = match req.method {
             Some("GET") => Method::Get,
             Some("POST") => Method::Post,
