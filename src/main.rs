@@ -26,7 +26,12 @@ fn main() -> Result<(), Error> {
                         .takes_value(true)
                         .required(true),
                 )
-                .arg(clap::Arg::with_name("filter").long("filter").required(true)),
+                .arg(
+                    clap::Arg::with_name("filter")
+                        .long("filter")
+                        .takes_value(true)
+                        .required(true),
+                ),
         )
         .subcommand(clap::SubCommand::with_name("decrypt"))
         .subcommand(clap::SubCommand::with_name("efficiency"))
