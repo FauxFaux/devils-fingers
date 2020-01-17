@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs;
 use std::io::Read;
@@ -87,6 +88,71 @@ impl Spec {
 
         addr
     }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct Nah {}
+
+#[derive(Clone, Debug, Deserialize)]
+struct Together {
+    now: Date,
+    po: ListDoc<PodSpec, PodStatus>,
+    no: ListDoc<NodeSpec, Nah>,
+    svc: ListDoc<ServiceSpec, Nah>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ListDoc<S, T> {
+    items: Vec<Item<S, T>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Metadata {
+    creation_timestamp: Date,
+    labels: Option<HashMap<String, String>>,
+    name: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct Item<S, T> {
+    metadata: Metadata,
+    spec: S,
+    status: T,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PodSpec {
+    containers: Vec<Container>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct Container {
+    name: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PodStatus {
+    #[serde(rename = "hostIP")]
+    host_ip: Ipv4Addr,
+    #[serde(rename = "podIP")]
+    pod_ip: Ipv4Addr,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct NodeSpec {}
+
+// sigh enum renames?
+type ServiceType = String;
+
+#[derive(Clone, Debug, Deserialize)]
+struct ServiceSpec {
+    #[serde(rename = "clusterIP")]
+    /// iff type field is ClusterIP, but
+    /// can be "None", in addition to None, no idea what that means
+    cluster_ip: Option<String>,
+    #[serde(rename = "type")]
+    service_type: ServiceType,
 }
 
 pub fn extract<R: Read>(from: R) -> Option<Spec> {
