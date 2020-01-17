@@ -64,6 +64,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "bitstring"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e54f7b7a46d7b183eb41e2d82965261fa8a1597c68b50aced268ee1fc70272d"
+
+[[package]]
 name = "block-buffer"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -156,6 +162,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cidr"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2da1cf0f275bb8dc1867a7f40cdb3b746951db73a183048e6e37fa89ed81bd01"
+dependencies = [
+ "bitstring",
+ "serde",
+]
+
+[[package]]
 name = "clap"
 version = "2.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -187,6 +203,7 @@ dependencies = [
  "aead",
  "chacha20poly1305",
  "chrono",
+ "cidr",
  "clap",
  "ctrlc",
  "digest",

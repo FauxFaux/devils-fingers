@@ -1,8 +1,10 @@
+use std::convert::TryFrom;
 use std::fs;
+use std::net::Ipv4Addr;
 
+use cidr::Cidr;
 use failure::Error;
 use serde_derive::Deserialize;
-use std::net::Ipv4Addr;
 
 type Date = chrono::DateTime<chrono::Utc>;
 
@@ -47,8 +49,8 @@ pub fn load() -> Result<Spec, Error> {
 }
 
 impl Spec {
-    pub fn name(&self, addr: &Ipv4Addr) -> String {
-        let addr = addr.to_string();
+    pub fn name(&self, addr_net: &Ipv4Addr) -> String {
+        let addr = addr_net.to_string();
         for service in &self.services {
             if service.ip == addr {
                 return format!("svc:{}", service.name);
@@ -72,6 +74,12 @@ impl Spec {
 
             if node.external_ip == addr {
                 return format!("ext:node:{}", i);
+            }
+
+            if let Ok(cidr) = node.pod_cidr.parse::<cidr::Ipv4Cidr>() {
+                if cidr.contains(addr_net) {
+                    return format!("unknown-pod-node:{}", i);
+                }
             }
         }
 

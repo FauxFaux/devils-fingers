@@ -8,6 +8,7 @@ edition = "2018"
 aead = "0.2"
 chacha20poly1305 = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
+cidr = "0.1"
 clap = "2"
 ctrlc = { version = "3", features = ["termination"] }
 digest = "0.8"
