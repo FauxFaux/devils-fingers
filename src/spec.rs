@@ -56,7 +56,7 @@ impl Spec {
         }
 
         for pod in &self.pods {
-            if pod.pod_ip == addr {
+            if pod.pod_ip != pod.node_ip && pod.pod_ip == addr {
                 return pod
                     .name
                     .as_ref()
@@ -65,13 +65,13 @@ impl Spec {
             }
         }
 
-        for node in &self.nodes {
+        for (i, node) in self.nodes.iter().enumerate() {
             if node.internal_ip == addr {
-                return node.name.to_string();
+                return format!("int:node:{}", i);
             }
 
             if node.external_ip == addr {
-                return format!("ext:{}", node.name);
+                return format!("ext:node:{}", i);
             }
         }
 

@@ -19,6 +19,7 @@ use httparse::Response;
 use crate::proto::Key;
 use crate::read;
 use crate::spec::Spec;
+use chrono::NaiveDateTime;
 
 pub fn flows(master: Key, spec: Spec, files: Vec<&str>) -> Result<(), Error> {
     for file in files {
@@ -37,20 +38,10 @@ struct Stats {
 }
 
 fn process<R: Read>(master: Key, spec: &Spec, from: R) -> Result<(), Error> {
-    let psl = publicsuffix::List::from_reader(io::Cursor::new(
-        &include_bytes!("../public_suffix_list.dat")[..],
-    ))
-    .expect("parsing static buffer");
-
-    let mut hosts = HashMap::with_capacity(512);
-    let mut uas = HashMap::with_capacity(512);
-    let mut ins = HashMap::with_capacity(512);
-
     let mut last = HashMap::with_capacity(512);
 
     let mut stats = Stats::default();
 
-    let mut valid_transactions = Vec::with_capacity(1024);
     read::read_frames(master, from, |record| {
         let mut data = record.data;
 
@@ -62,6 +53,84 @@ fn process<R: Read>(master: Key, spec: &Spec, from: R) -> Result<(), Error> {
             Ok(data) => data,
             Err(e) => {
                 stats.parse_error += 1;
+                eprintln!("{:?} parsing {:?}", e, String::from_utf8_lossy(data));
+                return Ok(());
+            }
+        };
+
+        let time = record.when;
+
+        let tuple = match data {
+            Recovered::Req(_) => (record.src, record.dest),
+            Recovered::Resp(_) => (record.dest, record.src),
+        };
+
+        match data {
+            Recovered::Req(req) => {
+                if let Some(_original) = last.insert(tuple, (time, req.to_owned())) {
+                    stats.rogue_req += 1;
+                    println!("duplicate req");
+                }
+            }
+            Recovered::Resp(resp) => match last.remove(&tuple) {
+                Some((start_time, req)) => {
+                    display_transaction(spec, start_time, time, tuple.0, tuple.1, req, resp);
+                }
+                None => {
+                    stats.rogue_resp += 1;
+                    println!(
+                        "{:?} {:?}: response with no request: {:?}",
+                        record.when, tuple, resp
+                    )
+                }
+            },
+        }
+        Ok(())
+    })?;
+
+    println!("{:#?}", stats);
+
+    Ok(())
+}
+
+fn display_transaction(
+    spec: &Spec,
+    start: NaiveDateTime,
+    end: NaiveDateTime,
+    from: SocketAddrV4,
+    to: SocketAddrV4,
+    req: ReqO,
+    resp: Resp,
+) {
+    let duration = end.signed_duration_since(start).num_milliseconds();
+    let from = spec.name(from.ip());
+    let to = spec.name(to.ip());
+    let method = format!("{:?}", req.method).to_ascii_uppercase();
+    println!(
+        "{} {:22} {:22} {:>6} {:3} ({:5}ms) {:?}",
+        start, from, to, method, resp.status, duration, req.path
+    );
+}
+
+fn guess_names<R: Read>(master: Key, from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
+    let psl = publicsuffix::List::from_reader(io::Cursor::new(
+        &include_bytes!("../public_suffix_list.dat")[..],
+    ))
+    .expect("parsing static buffer");
+
+    let mut hosts = HashMap::with_capacity(512);
+    let mut uas = HashMap::with_capacity(512);
+
+    read::read_frames(master, from, |record| {
+        let mut data = record.data;
+
+        // strip everything after the first null
+        if let Some(i) = data.iter().position(|&c| c == 0) {
+            data = &data[..i];
+        }
+        let data = match parse(data) {
+            Ok(data) => data,
+            Err(e) => {
                 eprintln!("{:?} parsing {:?}", e, String::from_utf8_lossy(data));
                 return Ok(());
             }
@@ -82,41 +151,12 @@ fn process<R: Read>(master: Key, spec: &Spec, from: R) -> Result<(), Error> {
                     .or_insert_with(|| HashSet::with_capacity(16))
                     .insert(ua.to_string());
             }
-
-            *ins.entry(record.dest.ip().to_owned()).or_insert(0u64) += 1;
         }
 
-        let tuple = match data {
-            Recovered::Req(_) => (record.src, record.dest),
-            Recovered::Resp(_) => (record.dest, record.src),
-        };
-
-        match data {
-            Recovered::Req(req) => {
-                if let Some(_original) = last.insert(tuple, (time, req.to_owned())) {
-                    stats.rogue_req += 1;
-                    println!("duplicate req");
-                }
-            }
-            Recovered::Resp(resp) => match last.remove(&tuple) {
-                Some((start_time, req)) => {
-                    valid_transactions.push((start_time, time, tuple, req, resp));
-                }
-                None => {
-                    stats.rogue_resp += 1;
-                    println!(
-                        "{:?} {:?}: response with no request: {:?}",
-                        record.when, tuple, resp
-                    )
-                }
-            },
-        }
         Ok(())
     })?;
 
-    println!("{:#?}", stats);
     println!("{:#?}", hosts);
-    println!("{:#?}", ins);
 
     let mut pod_lookup = HashMap::with_capacity(hosts.len() / 2);
 
@@ -138,33 +178,14 @@ fn process<R: Read>(master: Key, spec: &Spec, from: R) -> Result<(), Error> {
             1 => {
                 pod_lookup.insert(
                     addr.to_owned(),
-                    nice.into_iter().next().expect("length checked"),
+                    nice.into_iter().next().expect("length checked").to_string(),
                 );
             }
             _ => println!("{}: m-m-m-multi matches: {:?}", addr, hosts),
         }
     }
 
-    println!("{:#?}", pod_lookup);
-
-    for (start, end, (from, to), req, resp) in valid_transactions {
-        let duration = end.signed_duration_since(start).num_milliseconds();
-        let from = pod_lookup
-            .get(from.ip())
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| from.to_string());
-        let to = pod_lookup
-            .get(to.ip())
-            .map(|v| v.to_string())
-            .unwrap_or_else(|| to.to_string());
-        let method = format!("{:?}", req.method).to_ascii_uppercase();
-        println!(
-            "{} ({:5}ms) {:20} {:20} {:6} {:3} {:?}",
-            start, duration, from, to, method, resp.status, req.path
-        );
-    }
-
-    Ok(())
+    Ok(pod_lookup)
 }
 
 fn public_domain(psl: &publicsuffix::List, domain: &str) -> bool {
