@@ -1,10 +1,12 @@
 use std::convert::TryFrom;
 use std::fs;
+use std::io::Read;
 use std::net::Ipv4Addr;
 
 use cidr::Cidr;
 use failure::Error;
 use serde_derive::Deserialize;
+use serde_json::Value;
 
 type Date = chrono::DateTime<chrono::Utc>;
 
@@ -85,4 +87,57 @@ impl Spec {
 
         addr
     }
+}
+
+pub fn extract<R: Read>(from: R) -> Option<Spec> {
+    use serde_json::Value;
+    let data: Value = serde_json::from_reader(from).ok()?;
+    let now = data.get("now")?.as_str()?.parse().ok()?;
+    let mut nodes = Vec::new();
+    for no in data.get("no")?.as_array()? {
+        let metadata = no.get("metadata")?;
+        let addresses = no.get("status")?.as_array()?;
+
+        nodes.push(Node {
+            name: metadata.get("name")?.as_str()?.to_string(),
+            created: metadata.get("creationTimestamp")?.as_str()?.parse().ok()?,
+            pod_cidr: metadata
+                .get("spec")?
+                .as_object()?
+                .get("podCIDR")?
+                .as_str()?
+                .to_string(),
+            internal_ip: find_address(addresses, "InternalIP")?,
+            external_ip: find_address(addresses, "ExternalIP")?,
+        });
+    }
+
+    let mut services = Vec::new();
+    for svc in data.get("svc")?.as_array()? {
+        let metadata = svc.get("metadata")?;
+        services.push(Service {
+            name: metadata.get("name")?.as_str()?.to_string(),
+            created: metadata.get("creationTimestamp")?.as_str()?.parse().ok()?,
+            ip: svc.get("spec")?.get("clusterIP")?.as_str()?.to_string(),
+        })
+    }
+
+    let mut pods = Vec::new();
+
+    Some(Spec {
+        now,
+        nodes,
+        pods,
+        services,
+    })
+}
+
+fn find_address(addresses: &[Value], key: &str) -> Option<String> {
+    for address in addresses {
+        if address.get("type")?.as_str()? == key {
+            return Some(address.get("address")?.as_str()?.to_string());
+        }
+    }
+
+    None
 }
