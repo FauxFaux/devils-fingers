@@ -3,6 +3,5 @@
 a.out
 /?
 sample.dat
-spec.json
+spec*.json
 ?.txt
-short-spec.json

@@ -40,11 +40,11 @@ impl Together {
         }
 
         for (i, node) in self.no.items.iter().enumerate() {
-            if find_address(&node.status.addresses, "InternalIP") == Some(*addr_net) {
+            if node.status.internal_addresses().contains(addr_net) {
                 return format!("int:node:{}", i);
             }
 
-            if find_address(&node.status.addresses, "ExternalIP") == Some(*addr_net) {
+            if node.status.external_addresses().contains(addr_net) {
                 return format!("ext:node:{}", i);
             }
 
@@ -108,6 +108,7 @@ struct PodStatus {
 
 #[derive(Clone, Debug, Deserialize)]
 struct NodeSpec {
+    #[serde(rename = "podCIDR")]
     pod_cidr: cidr::Ipv4Cidr,
 }
 
@@ -116,11 +117,41 @@ struct NodeStatus {
     addresses: Vec<NodeAddress>,
 }
 
+impl NodeStatus {
+    fn internal_addresses(&self) -> Vec<Ipv4Addr> {
+        self.addresses
+            .iter()
+            .filter_map(|v| {
+                if let NodeAddress::InternalIP { address } = v {
+                    Some(address.to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn external_addresses(&self) -> Vec<Ipv4Addr> {
+        self.addresses
+            .iter()
+            .filter_map(|v| {
+                if let NodeAddress::ExternalIP { address } = v {
+                    Some(address.to_owned())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
-struct NodeAddress {
-    #[serde(rename = "type")]
-    address_type: String,
-    address: Ipv4Addr,
+#[serde(tag = "type")]
+enum NodeAddress {
+    InternalIP { address: Ipv4Addr },
+    ExternalIP { address: Ipv4Addr },
+    InternalDNS { address: String },
+    Hostname { address: String },
 }
 
 // sigh enum renames?
@@ -134,14 +165,4 @@ struct ServiceSpec {
     cluster_ip: Option<String>,
     #[serde(rename = "type")]
     service_type: ServiceType,
-}
-
-fn find_address(addresses: &[NodeAddress], key: &str) -> Option<Ipv4Addr> {
-    for address in addresses {
-        if address.address_type == key {
-            return Some(address.address.to_owned());
-        }
-    }
-
-    None
 }
