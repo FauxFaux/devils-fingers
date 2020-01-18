@@ -62,7 +62,7 @@ fn main() -> Result<(), Error> {
         ("efficiency", _) => efficiency(master_key.into()),
         ("flows", Some(args)) => flows::flows(
             master_key.into(),
-            spec::extract(std::fs::File::open("spec.json")?).unwrap(),
+            spec::load(std::fs::File::open("spec.json")?).unwrap(),
             args.values_of("file").expect("required arg").collect(),
         ),
         (_, _) => unreachable!("bad subcommand"),
