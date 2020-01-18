@@ -28,8 +28,8 @@ pub fn run_capture(master_key: Key, filter: &str, dest: &str, daemon: bool) -> R
     let dest = Enc::new(master_key.into(), dest)?;
     let dest = io::BufWriter::with_capacity(60 * 1024, dest);
     let mut dest = zstd::Encoder::new(dest, 3)?;
-    let handle =
-        pcap::open_with_filter("any", filter).with_context(|_| err_msg("starting capture"))?;
+    let handle = pcap::PCap::open_with_filter("any", filter)
+        .with_context(|_| err_msg("starting capture"))?;
 
     if daemon {
         println!("Running in background...");
@@ -88,7 +88,7 @@ fn read_packets(
     running: Arc<AtomicBool>,
 ) -> Result<(), Error> {
     while running.load(Ordering::SeqCst) {
-        let (header, data) = match pcap::next(&mut handle) {
+        let (header, data) = match handle.next() {
             Some(d) => d,
             None => continue,
         };

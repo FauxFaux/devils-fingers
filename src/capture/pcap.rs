@@ -26,18 +26,18 @@ unsafe impl Send for PCap {}
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct bpf_program {
-    pub bf_len: c_uint,
-    pub bf_insns: *mut bpf_insn,
+struct bpf_program {
+    bf_len: c_uint,
+    bf_insns: *mut bpf_insn,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct bpf_insn {
-    pub code: c_ushort,
-    pub jt: c_uchar,
-    pub jf: c_uchar,
-    pub k: c_uint,
+    code: c_ushort,
+    jt: c_uchar,
+    jf: c_uchar,
+    k: c_uint,
 }
 
 #[repr(C)]
@@ -74,38 +74,43 @@ extern "C" {
     ) -> c_int;
 }
 
-pub fn open_with_filter(device: &str, filter: &str) -> Result<PCap, Error> {
-    let device = CString::new(device)?;
-    let mut err = [0 as c_char; 4096];
-    let handle = unsafe { pcap_open_live(device.as_ptr(), 8096, 1, 1000, err.as_mut_ptr()) };
-    ensure!(!handle.is_null(), "open failed: {}", pcap_msg(&err));
-    let mut handle = PCap { inner: handle };
+impl PCap {
+    pub fn open_with_filter(device: &str, filter: &str) -> Result<PCap, Error> {
+        let device = CString::new(device)?;
+        let mut err = [0 as c_char; 4096];
+        let handle = unsafe { pcap_open_live(device.as_ptr(), 8096, 1, 1000, err.as_mut_ptr()) };
+        ensure!(!handle.is_null(), "open failed: {}", pcap_msg(&err));
+        let mut handle = PCap { inner: handle };
 
-    let mut prog = Prog::new_for(&mut handle, filter)?;
+        let mut prog = Prog::new_for(&mut handle, filter)?;
 
-    ensure!(
-        0 == unsafe { pcap_setfilter(handle.inner, &mut prog.inner) },
-        "set failed"
-    );
+        ensure!(
+            0 == unsafe { pcap_setfilter(handle.inner, &mut prog.inner) },
+            "set failed"
+        );
 
-    Ok(handle)
-}
-
-pub fn next(handle: &mut PCap) -> Option<(&pcap_pkthdr, &[u8])> {
-    let mut header: *mut pcap_pkthdr = ptr::null_mut();
-    let mut buf: *const c_uchar = ptr::null();
-    if 1 != unsafe { pcap_next_ex(handle.inner, &mut header, &mut buf) } {
-        return None;
+        Ok(handle)
     }
 
-    // unsafe: valid until the next call to certain methods (such as pcap_next_ex) on the handle,
-    // which is blocked by us having a &mut borrow of it
-    let header = unsafe { &*header };
+    pub fn next(&mut self) -> Option<(&pcap_pkthdr, &[u8])> {
+        let mut header: *mut pcap_pkthdr = ptr::null_mut();
+        let mut buf: *const c_uchar = ptr::null();
+        if 1 != unsafe { pcap_next_ex(self.inner, &mut header, &mut buf) } {
+            return None;
+        }
 
-    // unsafe: as above, and the length is specified by the API
-    let buf = unsafe { slice::from_raw_parts(buf, (*header).caplen as usize) };
+        assert!(!header.is_null());
+        assert!(!buf.is_null());
 
-    Some((header, buf))
+        // unsafe: valid until the next call to certain methods (such as pcap_next_ex) on the handle,
+        // which is blocked by us having a &mut borrow of it
+        let header = unsafe { &*header };
+
+        // unsafe: as above, and the length is specified by the API
+        let buf = unsafe { slice::from_raw_parts(buf, (*header).caplen as usize) };
+
+        Some((header, buf))
+    }
 }
 
 struct Prog {
