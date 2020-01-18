@@ -21,7 +21,7 @@ impl Together {
     pub fn name(&self, addr_net: &Ipv4Addr) -> String {
         let addr = addr_net.to_string();
         for service in &self.svc.items {
-            if service.spec.cluster_ip.unwrap_or(String::new()) == addr {
+            if service.spec.cluster_ip.as_ref().unwrap_or(&String::new()) == &addr {
                 return format!("svc:{}", service.metadata.name);
             }
         }
@@ -29,29 +29,30 @@ impl Together {
         for pod in &self.po.items {
             let spec = &pod.spec;
             let status = &pod.status;
-            if status.pod_ip != status.host_ip && status.pod_ip == addr {
-                return pod
-                    .metadata
-                    .labels
-                    .name
-                    .(spec.containers.get(0)?.name)
-                    .to_string();
+            if status.pod_ip != status.host_ip && status.pod_ip == *addr_net {
+                if let Some(labels) = pod.metadata.labels.as_ref() {
+                    if let Some(name) = labels.get("name") {
+                        return name.to_string();
+                    }
+                }
+
+                if let Some(container) = spec.containers.get(0) {
+                    return container.name.to_string();
+                }
             }
         }
 
-        for (i, node) in self.no.iter().enumerate() {
-            if node.internal_ip == addr {
+        for (i, node) in self.no.items.iter().enumerate() {
+            if find_address(&node.status.addresses, "InternalIP") == Some(*addr_net) {
                 return format!("int:node:{}", i);
             }
 
-            if node.external_ip == addr {
+            if find_address(&node.status.addresses, "ExternalIP") == Some(*addr_net) {
                 return format!("ext:node:{}", i);
             }
 
-            if let Ok(cidr) = node.pod_cidr.parse::<cidr::Ipv4Cidr>() {
-                if cidr.contains(addr_net) {
-                    return format!("unknown-pod-node:{}", i);
-                }
+            if node.spec.pod_cidr.contains(addr_net) {
+                return format!("unknown-pod-node:{}", i);
             }
         }
 
@@ -63,10 +64,10 @@ impl Together {
 struct Nah {}
 
 #[derive(Clone, Debug, Deserialize)]
-struct Together {
+pub struct Together {
     now: Date,
     po: ListDoc<PodSpec, PodStatus>,
-    no: ListDoc<NodeSpec, Nah>,
+    no: ListDoc<NodeSpec, NodeStatus>,
     svc: ListDoc<ServiceSpec, Nah>,
 }
 
@@ -109,7 +110,21 @@ struct PodStatus {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-struct NodeSpec {}
+struct NodeSpec {
+    pod_cidr: cidr::Ipv4Cidr,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct NodeStatus {
+    addresses: Vec<NodeAddress>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct NodeAddress {
+    #[serde(rename = "type")]
+    address_type: String,
+    address: Ipv4Addr,
+}
 
 // sigh enum renames?
 type ServiceType = String;
@@ -128,10 +143,10 @@ fn load_cluster_ip(value: &str) -> Option<Ipv4Addr> {
     None
 }
 
-fn find_address(addresses: &[Value], key: &str) -> Option<String> {
+fn find_address(addresses: &[NodeAddress], key: &str) -> Option<Ipv4Addr> {
     for address in addresses {
-        if address.get("type")?.as_str()? == key {
-            return Some(address.get("address")?.as_str()?.to_string());
+        if address.address_type == key {
+            return Some(address.address.to_owned());
         }
     }
 
