@@ -78,7 +78,7 @@ impl PCap {
     pub fn open_with_filter(device: &str, filter: &str) -> Result<PCap, Error> {
         let device = CString::new(device)?;
         let mut err = [0 as c_char; 4096];
-        let handle = unsafe { pcap_open_live(device.as_ptr(), 8096, 1, 1000, err.as_mut_ptr()) };
+        let handle = unsafe { pcap_open_live(device.as_ptr(), 512, 1, 1000, err.as_mut_ptr()) };
         ensure!(!handle.is_null(), "open failed: {}", pcap_msg(&err));
         let mut handle = PCap { inner: handle };
 

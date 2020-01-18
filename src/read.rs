@@ -12,13 +12,13 @@ use failure::Error;
 use crate::proto::Dec;
 use crate::proto::Key;
 
-struct Reader<R> {
+pub struct Reader<R> {
     dec: Dec<R>,
     buf: VecDeque<u8>,
 }
 
 impl<R> Reader<R> {
-    fn new(dec: Dec<R>) -> Self {
+    pub fn new(dec: Dec<R>) -> Self {
         Reader {
             dec,
             buf: VecDeque::with_capacity(8 * 1024),

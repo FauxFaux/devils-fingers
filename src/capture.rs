@@ -183,3 +183,24 @@ pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8;
 
     Ok(Some(record))
 }
+
+pub fn pack_pcap_legacy_format(
+    header: &pcap_pkthdr,
+    data: &[u8],
+) -> Result<Option<[u8; 512]>, Error> {
+    let mut record = [0u8; 512];
+
+    let ts_sec = u32::try_from(header.ts.tv_sec)?;
+    let ts_usec = u32::try_from(header.ts.tv_usec)?;
+    let usable = (data.len()).min(record.len() - 16);
+    let included_len = u32::try_from(usable)?;
+    let original_len = header.len;
+
+    record[0..4].copy_from_slice(&ts_sec.to_le_bytes());
+    record[4..8].copy_from_slice(&ts_usec.to_le_bytes());
+    record[8..12].copy_from_slice(&included_len.to_le_bytes());
+    record[12..16].copy_from_slice(&original_len.to_le_bytes());
+    record[16..16 + usable].copy_from_slice(&data[..usable]);
+
+    Ok(Some(record))
+}
