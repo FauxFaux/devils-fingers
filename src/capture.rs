@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 use std::io;
 use std::io::Write;
 use std::net;
-use std::slice;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
@@ -89,25 +88,22 @@ fn read_packets(
     running: Arc<AtomicBool>,
 ) -> Result<(), Error> {
     while running.load(Ordering::SeqCst) {
-        // unsafe: these pointers are only valid until the
-        // next call to `next` (or other currently not exposed functions)
-        let (header, data) = match unsafe { pcap::next(&mut handle) } {
+        let (header, data) = match pcap::next(&mut handle) {
             Some(d) => d,
             None => continue,
         };
 
         let ts = {
-            let ts = unsafe { &(*header).ts };
             u64::try_from(
-                ts.tv_sec
+                header
+                    .ts
+                    .tv_sec
                     .checked_mul(1_000_000)
                     .ok_or_else(|| err_msg("tv_sec out of range"))?
-                    .checked_add(ts.tv_usec)
+                    .checked_add(header.ts.tv_usec)
                     .ok_or_else(|| err_msg("tv_sec+tv_usec out of range"))?,
             )?
         };
-
-        let data = unsafe { slice::from_raw_parts(data, (*header).caplen as usize) };
 
         // it's probably right, I promise
         if data.len() < 36 {
