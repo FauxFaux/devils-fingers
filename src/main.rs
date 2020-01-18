@@ -128,9 +128,9 @@ fn make_pcap(master_key: Key) -> Result<(), Error> {
     // sig figs (always zero)
     stdout.write_all(&[0x00, 0x00, 0x00, 0x00])?;
     // snap len (512?)
-    stdout.write_all(&[0x02, 0x00, 0x00, 0x00])?;
+    stdout.write_all(&[0x00, 0x00, 0x02, 0x00])?;
     // network
-    stdout.write_all(&[0x01, 0x00, 0x00, 0x00])?;
+    stdout.write_all(&[0x71, 0x00, 0x00, 0x00])?;
 
     let from = read::Reader::new(dec);
     let mut from = zstd::Decoder::new(from)?;
