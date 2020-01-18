@@ -24,7 +24,16 @@ use crate::proto::Key;
 
 mod pcap;
 
-pub fn run_capture(master_key: Key, filter: &str, dest: &str, daemon: bool) -> Result<(), Error> {
+pub fn run_capture<F>(
+    master_key: Key,
+    filter: &str,
+    dest: &str,
+    daemon: bool,
+    packer: F,
+) -> Result<(), Error>
+where
+    F: 'static + Send + Fn(&pcap_pkthdr, &[u8]) -> Result<Option<[u8; 512]>, Error>,
+{
     let dest = net::TcpStream::connect(dest)?;
     let dest = Enc::new(master_key.into(), dest)?;
     let dest = io::BufWriter::with_capacity(60 * 1024, dest);
@@ -48,7 +57,7 @@ pub fn run_capture(master_key: Key, filter: &str, dest: &str, daemon: bool) -> R
 
     let (sink, recv) = mpsc::sync_channel(128);
 
-    let worker = thread::spawn(|| read_packets(handle, sink, running));
+    let worker = thread::spawn(|| read_packets(handle, sink, running, packer));
 
     let mut last_flush = Instant::now();
 
@@ -83,18 +92,22 @@ pub fn run_capture(master_key: Key, filter: &str, dest: &str, daemon: bool) -> R
     Ok(())
 }
 
-fn read_packets(
+fn read_packets<F>(
     mut handle: pcap::PCap,
     sink: mpsc::SyncSender<[u8; 512]>,
     running: Arc<AtomicBool>,
-) -> Result<(), Error> {
+    packer: F,
+) -> Result<(), Error>
+where
+    F: Fn(&pcap_pkthdr, &[u8]) -> Result<Option<[u8; 512]>, Error>,
+{
     while running.load(Ordering::SeqCst) {
         let (header, data) = match handle.next() {
             Some(d) => d,
             None => continue,
         };
 
-        if let Some(record) = pack_mostly_data(header, data)? {
+        if let Some(record) = packer(header, data)? {
             // err: disconnected
             if sink.send(record).is_err() {
                 break;
@@ -105,7 +118,7 @@ fn read_packets(
     Ok(())
 }
 
-fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8; 512]>, Error> {
+pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8; 512]>, Error> {
     // it's probably right, I promise
     if data.len() < 36 {
         return Ok(None);

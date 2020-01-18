@@ -56,7 +56,7 @@ fn main() -> Result<(), Error> {
             let dest = args.value_of("dest").expect("required param");
             let daemon = args.is_present("daemon");
 
-            capture::run_capture(master_key, filter, dest, daemon)
+            capture::run_capture(master_key, filter, dest, daemon, capture::pack_mostly_data)
         }
         ("decrypt", _) => decrypt(master_key.into()),
         ("efficiency", _) => efficiency(master_key.into()),
