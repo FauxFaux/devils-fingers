@@ -1,13 +1,10 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::fs;
 use std::io::Read;
 use std::net::Ipv4Addr;
 
 use cidr::Cidr;
 use failure::Error;
 use serde_derive::Deserialize;
-use serde_json::Value;
 
 type Date = chrono::DateTime<chrono::Utc>;
 
@@ -137,10 +134,6 @@ struct ServiceSpec {
     cluster_ip: Option<String>,
     #[serde(rename = "type")]
     service_type: ServiceType,
-}
-
-fn load_cluster_ip(value: &str) -> Option<Ipv4Addr> {
-    None
 }
 
 fn find_address(addresses: &[NodeAddress], key: &str) -> Option<Ipv4Addr> {

@@ -136,8 +136,6 @@ fn guess_names<R: Read>(master: Key, from: R) -> Result<HashMap<Ipv4Addr, String
             }
         };
 
-        let time = record.when;
-
         if let Recovered::Req(req) = data {
             if let Some(host) = req.host {
                 hosts
