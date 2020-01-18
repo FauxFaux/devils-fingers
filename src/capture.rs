@@ -106,18 +106,6 @@ fn read_packets(
 }
 
 fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8; 512]>, Error> {
-    let ts = {
-        u64::try_from(
-            header
-                .ts
-                .tv_sec
-                .checked_mul(1_000_000)
-                .ok_or_else(|| err_msg("tv_sec out of range"))?
-                .checked_add(header.ts.tv_usec)
-                .ok_or_else(|| err_msg("tv_sec+tv_usec out of range"))?,
-        )?
-    };
-
     // it's probably right, I promise
     if data.len() < 36 {
         return Ok(None);
@@ -156,6 +144,18 @@ fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8; 512
     let (src_ip, dest_ip) = match packet.ip {
         Some(InternetSlice::Ipv4(ref v)) => (v.source(), v.destination()),
         _ => return Ok(None),
+    };
+
+    let ts = {
+        u64::try_from(
+            header
+                .ts
+                .tv_sec
+                .checked_mul(1_000_000)
+                .ok_or_else(|| err_msg("tv_sec out of range"))?
+                .checked_add(header.ts.tv_usec)
+                .ok_or_else(|| err_msg("tv_sec+tv_usec out of range"))?,
+        )?
     };
 
     let mut record = [0u8; 512];
