@@ -18,6 +18,7 @@ use failure::err_msg;
 use failure::Error;
 use failure::ResultExt;
 
+use crate::capture::pcap::pcap_pkthdr;
 use crate::proto::Enc;
 use crate::proto::Key;
 
@@ -93,73 +94,79 @@ fn read_packets(
             None => continue,
         };
 
-        let ts = {
-            u64::try_from(
-                header
-                    .ts
-                    .tv_sec
-                    .checked_mul(1_000_000)
-                    .ok_or_else(|| err_msg("tv_sec out of range"))?
-                    .checked_add(header.ts.tv_usec)
-                    .ok_or_else(|| err_msg("tv_sec+tv_usec out of range"))?,
-            )?
-        };
-
-        // it's probably right, I promise
-        if data.len() < 36 {
-            continue;
-        }
-
-        // classic pcap
-        let data = &data[2..];
-
-        // discard ethernet header
-        let data = &data[14..];
-
-        let packet = match SlicedPacket::from_ip(data) {
-            Ok(packet) => packet,
-            _ => continue,
-        };
-
-        let t = match packet.transport {
-            Some(TransportSlice::Tcp(t)) => t,
-            _ => continue,
-        };
-
-        let header_end = usize::from(t.data_offset()) * 4;
-
-        let data = &data[20 + header_end..];
-
-        if !(data.starts_with(b"GET /")
-            || data.starts_with(b"POST /")
-            || data.starts_with(b"PUT /")
-            || data.starts_with(b"HTTP/1.1 ")
-            || data.starts_with(b"HEAD /")
-            || data.starts_with(b"DELETE /"))
-        {
-            continue;
-        }
-
-        let (src_ip, dest_ip) = match packet.ip {
-            Some(InternetSlice::Ipv4(ref v)) => (v.source(), v.destination()),
-            _ => continue,
-        };
-
-        let mut record = [0u8; 8 + 4 + 4 + 2 + 2 + 492];
-        record[..8].copy_from_slice(&ts.to_le_bytes());
-        record[8..12].copy_from_slice(src_ip);
-        record[12..14].copy_from_slice(&t.source_port().to_le_bytes());
-        record[14..18].copy_from_slice(dest_ip);
-        const HEADER_END: usize = 20;
-        record[18..HEADER_END].copy_from_slice(&t.destination_port().to_le_bytes());
-        let usable = (data.len()).min(record.len() - HEADER_END);
-        record[HEADER_END..HEADER_END + usable].copy_from_slice(&data[..usable]);
-
-        // err: disconnected
-        if sink.send(record).is_err() {
-            break;
+        if let Some(record) = pack_mostly_data(header, data)? {
+            // err: disconnected
+            if sink.send(record).is_err() {
+                break;
+            }
         }
     }
 
     Ok(())
+}
+
+fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8; 512]>, Error> {
+    let ts = {
+        u64::try_from(
+            header
+                .ts
+                .tv_sec
+                .checked_mul(1_000_000)
+                .ok_or_else(|| err_msg("tv_sec out of range"))?
+                .checked_add(header.ts.tv_usec)
+                .ok_or_else(|| err_msg("tv_sec+tv_usec out of range"))?,
+        )?
+    };
+
+    // it's probably right, I promise
+    if data.len() < 36 {
+        return Ok(None);
+    }
+
+    // classic pcap
+    let data = &data[2..];
+
+    // discard ethernet header
+    let data = &data[14..];
+
+    let packet = match SlicedPacket::from_ip(data) {
+        Ok(packet) => packet,
+        _ => return Ok(None),
+    };
+
+    let t = match packet.transport {
+        Some(TransportSlice::Tcp(t)) => t,
+        _ => return Ok(None),
+    };
+
+    let header_end = usize::from(t.data_offset()) * 4;
+
+    let data = &data[20 + header_end..];
+
+    if !(data.starts_with(b"GET /")
+        || data.starts_with(b"POST /")
+        || data.starts_with(b"PUT /")
+        || data.starts_with(b"HTTP/1.1 ")
+        || data.starts_with(b"HEAD /")
+        || data.starts_with(b"DELETE /"))
+    {
+        return Ok(None);
+    }
+
+    let (src_ip, dest_ip) = match packet.ip {
+        Some(InternetSlice::Ipv4(ref v)) => (v.source(), v.destination()),
+        _ => return Ok(None),
+    };
+
+    let mut record = [0u8; 512];
+    record[..8].copy_from_slice(&ts.to_le_bytes());
+    record[8..12].copy_from_slice(src_ip);
+    record[12..14].copy_from_slice(&t.source_port().to_le_bytes());
+    record[14..18].copy_from_slice(dest_ip);
+    const HEADER_END: usize = 20;
+    record[18..HEADER_END].copy_from_slice(&t.destination_port().to_le_bytes());
+    let usable = (data.len()).min(record.len() - HEADER_END);
+    record[HEADER_END..HEADER_END + usable].copy_from_slice(&data[..usable]);
+
+    Ok(Some(record))
 }
