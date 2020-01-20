@@ -72,6 +72,7 @@ where
                 let now = Instant::now();
                 if now.duration_since(last_flush).as_secs() > 10 {
                     dest.flush()?;
+                    dest.get_mut().flush()?;
                     last_flush = now;
                 }
                 continue;

@@ -34,6 +34,7 @@ impl Buffer {
 
     pub fn extend_from_slice(&mut self, val: &[u8]) {
         self.inner[self.len..self.len + val.len()].copy_from_slice(val);
+        self.len += val.len();
     }
 
     pub fn len(&self) -> usize {
