@@ -18,6 +18,7 @@ use failure::err_msg;
 use failure::Error;
 use failure::ResultExt;
 
+use crate::buffer::Buffer;
 use crate::capture::pcap::pcap_pkthdr;
 use crate::proto::Enc;
 use crate::proto::Key;
@@ -32,7 +33,7 @@ pub fn run_capture<F>(
     packer: F,
 ) -> Result<(), Error>
 where
-    F: 'static + Send + Fn(&pcap_pkthdr, &[u8]) -> Result<Option<[u8; 512]>, Error>,
+    F: 'static + Send + Fn(&pcap_pkthdr, &[u8]) -> Result<Buffer, Error>,
 {
     let dest = net::TcpStream::connect(dest)?;
     let dest = Enc::new(master_key.into(), dest)?;
@@ -63,7 +64,10 @@ where
 
     while recv_loop.load(Ordering::SeqCst) {
         match recv.recv_timeout(Duration::from_secs(1)) {
-            Ok(buf) => dest.write_all(&buf)?,
+            Ok(buf) => {
+                dest.write_all(&u16::try_from(buf.len())?.to_le_bytes())?;
+                dest.write_all(buf.as_ref())?;
+            }
             Err(RecvTimeoutError::Timeout) => {
                 let now = Instant::now();
                 if now.duration_since(last_flush).as_secs() > 10 {
@@ -94,34 +98,44 @@ where
 
 fn read_packets<F>(
     mut handle: pcap::PCap,
-    sink: mpsc::SyncSender<[u8; 512]>,
+    sink: mpsc::SyncSender<Buffer>,
     running: Arc<AtomicBool>,
     packer: F,
 ) -> Result<(), Error>
 where
-    F: Fn(&pcap_pkthdr, &[u8]) -> Result<Option<[u8; 512]>, Error>,
+    F: Fn(&pcap_pkthdr, &[u8]) -> Result<Buffer, Error>,
 {
+    let mut previous = Buffer::empty();
     while running.load(Ordering::SeqCst) {
         let (header, data) = match handle.next() {
             Some(d) => d,
             None => continue,
         };
 
-        if let Some(record) = packer(header, data)? {
-            // err: disconnected
-            if sink.send(record).is_err() {
-                break;
-            }
+        let buffer = packer(header, data)?;
+        if buffer.is_empty() {
+            continue;
+        }
+
+        if buffer.as_ref() == previous.as_ref() {
+            continue;
+        }
+
+        previous = buffer;
+
+        // err: disconnected
+        if sink.send(buffer).is_err() {
+            break;
         }
     }
 
     Ok(())
 }
 
-pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8; 512]>, Error> {
+pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Buffer, Error> {
     // it's probably right, I promise
     if data.len() < 36 {
-        return Ok(None);
+        return Ok(Buffer::empty());
     }
 
     // classic pcap
@@ -132,32 +146,35 @@ pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8;
 
     let packet = match SlicedPacket::from_ip(data) {
         Ok(packet) => packet,
-        _ => return Ok(None),
+        _ => return Ok(Buffer::empty()),
+    };
+
+    let (src_ip, dest_ip) = match packet.ip {
+        Some(InternetSlice::Ipv4(ref v)) => (v.source(), v.destination()),
+        _ => return Ok(Buffer::empty()),
     };
 
     let t = match packet.transport {
         Some(TransportSlice::Tcp(t)) => t,
-        _ => return Ok(None),
+        _ => return Ok(Buffer::empty()),
     };
 
     let header_end = usize::from(t.data_offset()) * 4;
 
     let data = &data[20 + header_end..];
 
-    if !(data.starts_with(b"GET /")
+    if !(t.syn()
+        || t.fin()
+        || t.rst()
+        || data.starts_with(b"GET /")
         || data.starts_with(b"POST /")
         || data.starts_with(b"PUT /")
         || data.starts_with(b"HTTP/1.1 ")
         || data.starts_with(b"HEAD /")
         || data.starts_with(b"DELETE /"))
     {
-        return Ok(None);
+        return Ok(Buffer::empty());
     }
-
-    let (src_ip, dest_ip) = match packet.ip {
-        Some(InternetSlice::Ipv4(ref v)) => (v.source(), v.destination()),
-        _ => return Ok(None),
-    };
 
     let ts = {
         u64::try_from(
@@ -171,36 +188,37 @@ pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Option<[u8;
         )?
     };
 
-    let mut record = [0u8; 512];
-    record[..8].copy_from_slice(&ts.to_le_bytes());
-    record[8..12].copy_from_slice(src_ip);
-    record[12..14].copy_from_slice(&t.source_port().to_le_bytes());
-    record[14..18].copy_from_slice(dest_ip);
-    const HEADER_END: usize = 20;
-    record[18..HEADER_END].copy_from_slice(&t.destination_port().to_le_bytes());
-    let usable = (data.len()).min(record.len() - HEADER_END);
-    record[HEADER_END..HEADER_END + usable].copy_from_slice(&data[..usable]);
+    let tcp_flags = t.slice()[13];
 
-    Ok(Some(record))
+    let mut record = Buffer::empty();
+    record.push_u64(ts);
+    record.extend_from_slice(src_ip);
+    record.push_u16(t.source_port());
+    record.extend_from_slice(dest_ip);
+    record.push_u16(t.destination_port());
+    record.push_u8(tcp_flags);
+    assert_eq!(21, record.len());
+    let usable = (data.len()).min(record.capacity() - record.len());
+    record.extend_from_slice(&data[..usable]);
+
+    Ok(record)
 }
 
-pub fn pack_pcap_legacy_format(
-    header: &pcap_pkthdr,
-    data: &[u8],
-) -> Result<Option<[u8; 512]>, Error> {
-    let mut record = [0u8; 512];
+pub fn pack_pcap_legacy_format(header: &pcap_pkthdr, data: &[u8]) -> Result<Buffer, Error> {
+    let mut record = Buffer::empty();
 
     let ts_sec = u32::try_from(header.ts.tv_sec)?;
     let ts_usec = u32::try_from(header.ts.tv_usec)?;
-    let usable = (data.len()).min(record.len() - 16);
+    let usable = (data.len()).min(record.capacity() - 16);
     let included_len = u32::try_from(usable)?;
     let original_len = header.len;
 
-    record[0..4].copy_from_slice(&ts_sec.to_le_bytes());
-    record[4..8].copy_from_slice(&ts_usec.to_le_bytes());
-    record[8..12].copy_from_slice(&included_len.to_le_bytes());
-    record[12..16].copy_from_slice(&original_len.to_le_bytes());
-    record[16..16 + usable].copy_from_slice(&data[..usable]);
+    record.push_u32(ts_sec);
+    record.push_u32(ts_usec);
+    record.push_u32(included_len);
+    record.push_u32(original_len);
+    assert_eq!(16, record.len());
+    record.extend_from_slice(&data[..usable]);
 
-    Ok(Some(record))
+    Ok(record)
 }

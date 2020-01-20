@@ -10,6 +10,7 @@ use failure::ResultExt;
 use crate::proto::Dec;
 use crate::proto::Key;
 
+mod buffer;
 mod capture;
 mod flows;
 mod proto;
