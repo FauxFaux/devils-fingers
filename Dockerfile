@@ -14,8 +14,8 @@ RUN cd /tmp && \
     USER=foo cargo init --bin awa && \
     cd awa && \
     printf '%s = "*"\n' \
-        chacha20poly1305 chrono clap ctrlc \
-        failure publicsuffix rand \
+        chrono clap ctrlc \
+        failure publicsuffix rand septid \
         serde_derive serde_json zstd \
             >> Cargo.toml && \
     cargo fetch

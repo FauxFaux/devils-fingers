@@ -16,14 +16,13 @@ use httparse::Header;
 use httparse::Request;
 use httparse::Response;
 
-use crate::proto::Key;
 use crate::read;
 use crate::spec::Spec;
 use chrono::NaiveDateTime;
 
-pub fn flows(master: Key, spec: Spec, files: Vec<&str>) -> Result<(), Error> {
+pub fn flows(spec: Spec, files: Vec<&str>) -> Result<(), Error> {
     for file in files {
-        process(master, &spec, fs::File::open(file)?)?;
+        process(&spec, fs::File::open(file)?)?;
     }
     Ok(())
 }
@@ -37,12 +36,12 @@ struct Stats {
     rogue_resp: u64,
 }
 
-fn process<R: Read>(master: Key, spec: &Spec, from: R) -> Result<(), Error> {
+fn process<R: Read>(spec: &Spec, from: R) -> Result<(), Error> {
     let mut last = HashMap::with_capacity(512);
 
     let mut stats = Stats::default();
 
-    read::read_frames(master, from, |record| {
+    read::read_frames(from, |record| {
         let mut data = record.data;
 
         // strip everything after the first null
@@ -112,7 +111,7 @@ fn display_transaction(
     );
 }
 
-fn guess_names<R: Read>(master: Key, from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
+fn guess_names<R: Read>(from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
     let psl = publicsuffix::List::from_reader(io::Cursor::new(
         &include_bytes!("../public_suffix_list.dat")[..],
     ))
@@ -121,7 +120,7 @@ fn guess_names<R: Read>(master: Key, from: R) -> Result<HashMap<Ipv4Addr, String
     let mut hosts = HashMap::with_capacity(512);
     let mut uas = HashMap::with_capacity(512);
 
-    read::read_frames(master, from, |record| {
+    read::read_frames(from, |record| {
         let mut data = record.data;
 
         // strip everything after the first null
@@ -301,16 +300,4 @@ fn find_header<'h>(key: &str, headers: &[Header<'h>]) -> Option<&'h str> {
         }
     }
     None
-}
-
-#[test]
-fn vec_deck_slices() {
-    use std::collections::VecDeque;
-    let mut buf = VecDeque::new();
-    buf.push_back(1usize);
-    assert_eq!((&[1][..], &[][..]), buf.as_slices());
-    buf.push_front(2usize);
-    assert_eq!((&[2][..], &[1][..]), buf.as_slices());
-    buf.pop_front().unwrap();
-    assert_eq!((&[1][..], &[][..]), buf.as_slices());
 }

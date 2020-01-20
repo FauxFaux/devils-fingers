@@ -5,13 +5,10 @@ authors = ["Chris West (Faux) <git@goeswhere.com>"]
 edition = "2018"
 
 [dependencies]
-aead = "0.2"
-chacha20poly1305 = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 cidr = "0.1"
 clap = "2"
 ctrlc = { version = "3", features = ["termination"] }
-digest = "0.8"
 etherparse = "0.9"
 failure = { version = "0.1", default-features = false, features = ["std"] }
 # so dumb, needed for a cast
@@ -21,10 +18,10 @@ libc = "0.2"
 nix = "0.16"
 publicsuffix = { version = "1", default-features = false }
 rand = "0.7"
+septid = "0.1"
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
-sha2 = "0.8"
 zstd = "0.5"
 
 [dev-dependencies]

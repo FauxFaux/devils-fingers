@@ -17,16 +17,16 @@ use etherparse::TransportSlice;
 use failure::err_msg;
 use failure::Error;
 use failure::ResultExt;
+use septid::MasterKey;
+use septid::SPipe;
 
 use crate::buffer::Buffer;
 use crate::capture::pcap::pcap_pkthdr;
-use crate::proto::Enc;
-use crate::proto::Key;
 
 mod pcap;
 
 pub fn run_capture<F>(
-    master_key: Key,
+    master_key: MasterKey,
     filter: &str,
     dest: &str,
     daemon: bool,
@@ -36,7 +36,7 @@ where
     F: 'static + Send + Fn(&pcap_pkthdr, &[u8]) -> Result<Buffer, Error>,
 {
     let dest = net::TcpStream::connect(dest)?;
-    let dest = Enc::new(master_key.into(), dest)?;
+    let dest = SPipe::negotiate(master_key, dest)?;
     let dest = io::BufWriter::with_capacity(60 * 1024, dest);
     let mut dest = zstd::Encoder::new(dest, 3)?;
     let handle = pcap::PCap::open_with_filter("any", filter)
