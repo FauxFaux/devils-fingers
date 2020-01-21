@@ -43,7 +43,8 @@ fn process<R: Read>(spec: &Spec, mut from: R) -> Result<(), Error> {
 
     let mut stats = Stats::default();
 
-    while let Some(record) = read::read_frame(&mut from)? {
+    for record in read::ReadFrames::new(&mut from) {
+        let record = record?;
         let mut data = record.data.as_ref();
 
         // strip everything after the first null
@@ -121,7 +122,8 @@ fn guess_names<R: Read>(mut from: R) -> Result<HashMap<Ipv4Addr, String>, Error>
     let mut hosts = HashMap::with_capacity(512);
     let mut uas = HashMap::with_capacity(512);
 
-    while let Some(record) = read::read_frame(&mut from)? {
+    for record in read::ReadFrames::new(&mut from) {
+        let record = record?;
         let mut data = record.data.as_ref();
 
         // strip everything after the first null

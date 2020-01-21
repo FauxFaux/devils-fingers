@@ -240,6 +240,7 @@ dependencies = [
  "generic-array",
  "hex",
  "httparse",
+ "insideout",
  "libc",
  "nix 0.16.1",
  "publicsuffix",
@@ -360,6 +361,12 @@ dependencies = [
  "unicode-bidi",
  "unicode-normalization",
 ]
+
+[[package]]
+name = "insideout"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2d154ccd0b9a143b3d7ef692673ec2af7f81e2b9eb0c5cf616daefa6a7b0967"
 
 [[package]]
 name = "itoa"

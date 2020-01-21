@@ -7,6 +7,7 @@ use std::net::SocketAddrV4;
 use chrono::NaiveDateTime;
 use failure::ensure;
 use failure::Error;
+use insideout::InsideOut as _;
 
 use crate::buffer::Buffer;
 
@@ -19,7 +20,25 @@ pub struct Record {
     pub data: Buffer,
 }
 
-pub fn read_frame<R: Read>(mut from: R) -> Result<Option<Record>, Error> {
+pub struct ReadFrames<R> {
+    from: R,
+}
+
+impl<R> ReadFrames<R> {
+    pub fn new(from: R) -> Self {
+        ReadFrames { from }
+    }
+}
+
+impl<R: Read> Iterator for ReadFrames<R> {
+    type Item = Result<Record, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        read_frame(&mut self.from).inside_out()
+    }
+}
+
+fn read_frame<R: Read>(mut from: R) -> Result<Option<Record>, Error> {
     const HEADER_LEN: usize = 21;
 
     let mut header = [0u8; 2 + HEADER_LEN];
