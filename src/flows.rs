@@ -59,10 +59,10 @@ where
         let record = record?;
         let mut data = record.data.as_ref();
 
-        // strip everything after the first null
-        if let Some(i) = data.iter().position(|&c| c == 0) {
-            data = &data[..i];
+        if data.is_empty() {
+            continue;
         }
+
         let data = match parse(data) {
             Ok(data) => data,
             Err(e) => {

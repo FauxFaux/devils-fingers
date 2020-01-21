@@ -45,11 +45,11 @@ fn main() -> Result<(), Error> {
         )
         .get_matches();
 
-    let master_key = env::var("PCAP_MASTER_KEY").with_context(|_| "PCAP_MASTER_KEY must be set")?;
-    let master_key: MasterKey = MasterKey::from_reader(io::Cursor::new(master_key.as_bytes()))?;
-
     match args.subcommand() {
         ("capture", Some(args)) => {
+            let master_key = env::var("PCAP_MASTER_KEY").with_context(|_| "PCAP_MASTER_KEY must be set")?;
+            let master_key: MasterKey = MasterKey::from_reader(io::Cursor::new(master_key.as_bytes()))?;
+
             let filter = args.value_of("filter").expect("required param");
             let dest = args.value_of("dest").expect("required param");
             let daemon = args.is_present("daemon");

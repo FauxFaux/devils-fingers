@@ -51,8 +51,9 @@ fn read_frame<R: Read>(mut from: R) -> Result<Option<Record>, Error> {
 
     let len = u16::from_le_bytes(header[..2].try_into()?);
     ensure!(
-        len > u16::try_from(HEADER_LEN).expect("constant"),
-        "data len including header but excluding length is too short"
+        len >= u16::try_from(HEADER_LEN).expect("constant"),
+        "data len including header but excluding length is too short: {}",
+        len
     );
 
     let data_len = usize::from(len) - HEADER_LEN;
@@ -74,7 +75,7 @@ fn read_frame<R: Read>(mut from: R) -> Result<Option<Record>, Error> {
     let src = read_addr(&record[8..14]);
     let dest = read_addr(&record[14..20]);
 
-    let flags = record[21];
+    let flags = record[20];
 
     data.extend_from_reader(from, data_len)?;
 
