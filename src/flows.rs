@@ -8,6 +8,7 @@ use std::net::SocketAddrV4;
 use std::str;
 use std::str::FromStr;
 
+use chrono::NaiveDateTime;
 use failure::bail;
 use failure::err_msg;
 use failure::format_err;
@@ -15,17 +16,25 @@ use failure::Error;
 use httparse::Header;
 use httparse::Request;
 use httparse::Response;
+use itertools::Itertools;
 
 use crate::read;
+use crate::read::{ReadFrames, Record};
 use crate::spec::Spec;
-use chrono::NaiveDateTime;
 
 pub fn flows(spec: Spec, files: Vec<&str>) -> Result<(), Error> {
+    let mut sources = Vec::with_capacity(files.len());
     for file in files {
         let file = fs::File::open(file)?;
         let file = zstd::Decoder::new(file)?;
-        process(&spec, file)?;
+        sources.push(ReadFrames::new(file));
     }
+    process(
+        &spec,
+        sources.into_iter().kmerge_by(|left, right| {
+            left.as_ref().ok().map(|v| v.when) < right.as_ref().ok().map(|v| v.when)
+        }),
+    )?;
     Ok(())
 }
 
@@ -38,12 +47,15 @@ struct Stats {
     rogue_resp: u64,
 }
 
-fn process<R: Read>(spec: &Spec, mut from: R) -> Result<(), Error> {
+fn process<I>(spec: &Spec, mut from: I) -> Result<(), Error>
+where
+    I: IntoIterator<Item = Result<Record, Error>>,
+{
     let mut last = HashMap::with_capacity(512);
 
     let mut stats = Stats::default();
 
-    for record in read::ReadFrames::new(&mut from) {
+    for record in from {
         let record = record?;
         let mut data = record.data.as_ref();
 
@@ -301,4 +313,12 @@ fn find_header<'h>(key: &str, headers: &[Header<'h>]) -> Option<&'h str> {
         }
     }
     None
+}
+
+#[test]
+fn merge() {
+    assert_eq!(
+        itertools::kmerge(vec![vec![3, 6, 9], vec![1, 4, 7], vec![2, 6, 6, 8]]).collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 6, 6, 6, 7, 8, 9]
+    );
 }

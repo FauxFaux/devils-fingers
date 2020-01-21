@@ -15,6 +15,7 @@ failure = { version = "0.1", default-features = false, features = ["std"] }
 generic-array = "0.12"
 httparse = "1"
 insideout = "0.2"
+itertools = "0.8"
 libc = "0.2"
 nix = "0.16"
 publicsuffix = { version = "1", default-features = false }
