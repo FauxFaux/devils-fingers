@@ -6,3 +6,4 @@ sample.dat
 spec*.json
 ?.txt
 *.pcap
+*-captures

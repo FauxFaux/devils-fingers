@@ -22,7 +22,9 @@ use chrono::NaiveDateTime;
 
 pub fn flows(spec: Spec, files: Vec<&str>) -> Result<(), Error> {
     for file in files {
-        process(&spec, fs::File::open(file)?)?;
+        let file = fs::File::open(file)?;
+        let file = zstd::Decoder::new(file)?;
+        process(&spec, file)?;
     }
     Ok(())
 }
@@ -36,13 +38,13 @@ struct Stats {
     rogue_resp: u64,
 }
 
-fn process<R: Read>(spec: &Spec, from: R) -> Result<(), Error> {
+fn process<R: Read>(spec: &Spec, mut from: R) -> Result<(), Error> {
     let mut last = HashMap::with_capacity(512);
 
     let mut stats = Stats::default();
 
-    read::read_frames(from, |record| {
-        let mut data = record.data;
+    while let Some(record) = read::read_frame(&mut from)? {
+        let mut data = record.data.as_ref();
 
         // strip everything after the first null
         if let Some(i) = data.iter().position(|&c| c == 0) {
@@ -84,8 +86,7 @@ fn process<R: Read>(spec: &Spec, from: R) -> Result<(), Error> {
                 }
             },
         }
-        Ok(())
-    })?;
+    }
 
     println!("{:#?}", stats);
 
@@ -111,7 +112,7 @@ fn display_transaction(
     );
 }
 
-fn guess_names<R: Read>(from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
+fn guess_names<R: Read>(mut from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
     let psl = publicsuffix::List::from_reader(io::Cursor::new(
         &include_bytes!("../public_suffix_list.dat")[..],
     ))
@@ -120,8 +121,8 @@ fn guess_names<R: Read>(from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
     let mut hosts = HashMap::with_capacity(512);
     let mut uas = HashMap::with_capacity(512);
 
-    read::read_frames(from, |record| {
-        let mut data = record.data;
+    while let Some(record) = read::read_frame(&mut from)? {
+        let mut data = record.data.as_ref();
 
         // strip everything after the first null
         if let Some(i) = data.iter().position(|&c| c == 0) {
@@ -131,7 +132,7 @@ fn guess_names<R: Read>(from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
             Ok(data) => data,
             Err(e) => {
                 eprintln!("{:?} parsing {:?}", e, String::from_utf8_lossy(data));
-                return Ok(());
+                continue;
             }
         };
 
@@ -149,9 +150,7 @@ fn guess_names<R: Read>(from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
                     .insert(ua.to_string());
             }
         }
-
-        Ok(())
-    })?;
+    }
 
     println!("{:#?}", hosts);
 
