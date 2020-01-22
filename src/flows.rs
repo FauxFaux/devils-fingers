@@ -47,36 +47,56 @@ struct Stats {
     rogue_resp: u64,
 }
 
-fn process<I>(spec: &Spec, mut from: I) -> Result<(), Error>
+fn process<I>(spec: &Spec, from: I) -> Result<(), Error>
 where
     I: IntoIterator<Item = Result<Record, Error>>,
 {
+    #[cfg(never)]
     let mut last = HashMap::with_capacity(512);
-
-    let mut stats = Stats::default();
 
     for record in from {
         let record = record?;
-        let mut data = record.data.as_ref();
+        let data = record.data.as_ref();
+
+        let flags = format!(
+            "{}{}{}{}",
+            if record.ack() { "A" } else { " " },
+            if record.syn() { "S" } else { " " },
+            if record.fin() { "F" } else { " " },
+            if record.rst() { "R" } else { " " },
+        );
+
+        let prefix = format!(
+            "{} n:{:02} ({:>22} -> {:22}) {} ",
+            record.when,
+            record.file_no,
+            format!("{}", record.src),
+            format!("{}", record.dest),
+            flags
+        );
 
         if data.is_empty() {
+            println!("{} (no data)", prefix);
             continue;
         }
 
         let data = match parse(data) {
             Ok(data) => data,
             Err(e) => {
-                stats.parse_error += 1;
                 eprintln!("{:?} parsing {:?}", e, String::from_utf8_lossy(data));
-                return Ok(());
+                continue;
             }
         };
 
+        #[cfg(never)]
         let tuple = match data {
             Recovered::Req(_) => (record.src, record.dest),
             Recovered::Resp(_) => (record.dest, record.src),
         };
 
+        println!("{} {:?}", prefix, data);
+
+        #[cfg(never)]
         match data {
             Recovered::Req(req) => {
                 if let Some(_original) = last.insert(tuple, (record.when, req.to_owned())) {
@@ -98,8 +118,6 @@ where
             },
         }
     }
-
-    println!("{:#?}", stats);
 
     Ok(())
 }
