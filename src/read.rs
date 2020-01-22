@@ -13,6 +13,7 @@ use crate::buffer::Buffer;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Record {
+    pub file_no: usize,
     pub when: NaiveDateTime,
     pub src: SocketAddrV4,
     pub dest: SocketAddrV4,
@@ -20,25 +21,43 @@ pub struct Record {
     pub data: Buffer,
 }
 
-pub struct ReadFrames<R> {
-    from: R,
-}
+impl Record {
+    pub fn fin(&self) -> bool {
+        0 != (self.flags & 1)
+    }
+    pub fn syn(&self) -> bool {
+        0 != (self.flags & 2)
+    }
 
-impl<R> ReadFrames<R> {
-    pub fn new(from: R) -> Self {
-        ReadFrames { from }
+    pub fn rst(&self) -> bool {
+        0 != (self.flags & 4)
+    }
+
+    pub fn ack(&self) -> bool {
+        0 != (self.flags & 16)
     }
 }
 
-impl<R: Read> Iterator for ReadFrames<R> {
+pub struct ReadFrames<R, M> {
+    from: R,
+    meta: M,
+}
+
+impl<R, M> ReadFrames<R, M> {
+    pub fn new(from: R, meta: M) -> Self {
+        ReadFrames { from, meta }
+    }
+}
+
+impl<R: Read> Iterator for ReadFrames<R, usize> {
     type Item = Result<Record, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        read_frame(&mut self.from).inside_out()
+        read_frame(&mut self.from, self.meta).inside_out()
     }
 }
 
-fn read_frame<R: Read>(mut from: R) -> Result<Option<Record>, Error> {
+fn read_frame<R: Read>(mut from: R, file_no: usize) -> Result<Option<Record>, Error> {
     const HEADER_LEN: usize = 21;
 
     let mut header = [0u8; 2 + HEADER_LEN];
@@ -80,6 +99,7 @@ fn read_frame<R: Read>(mut from: R) -> Result<Option<Record>, Error> {
     data.extend_from_reader(from, data_len)?;
 
     Ok(Some(Record {
+        file_no,
         when,
         src,
         dest,

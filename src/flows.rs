@@ -24,10 +24,10 @@ use crate::spec::Spec;
 
 pub fn flows(spec: Spec, files: Vec<&str>) -> Result<(), Error> {
     let mut sources = Vec::with_capacity(files.len());
-    for file in files {
+    for (file_no, file) in files.into_iter().enumerate() {
         let file = fs::File::open(file)?;
         let file = zstd::Decoder::new(file)?;
-        sources.push(ReadFrames::new(file));
+        sources.push(ReadFrames::new(file, file_no));
     }
     process(
         &spec,
@@ -72,8 +72,6 @@ where
             }
         };
 
-        let time = record.when;
-
         let tuple = match data {
             Recovered::Req(_) => (record.src, record.dest),
             Recovered::Resp(_) => (record.dest, record.src),
@@ -81,14 +79,14 @@ where
 
         match data {
             Recovered::Req(req) => {
-                if let Some(_original) = last.insert(tuple, (time, req.to_owned())) {
+                if let Some(_original) = last.insert(tuple, (record.when, req.to_owned())) {
                     stats.rogue_req += 1;
                     println!("duplicate req");
                 }
             }
             Recovered::Resp(resp) => match last.remove(&tuple) {
                 Some((start_time, req)) => {
-                    display_transaction(spec, start_time, time, tuple.0, tuple.1, req, resp);
+                    display_transaction(spec, start_time, record.when, tuple.0, tuple.1, req, resp);
                 }
                 None => {
                     stats.rogue_resp += 1;
@@ -134,7 +132,7 @@ fn guess_names<R: Read>(mut from: R) -> Result<HashMap<Ipv4Addr, String>, Error>
     let mut hosts = HashMap::with_capacity(512);
     let mut uas = HashMap::with_capacity(512);
 
-    for record in read::ReadFrames::new(&mut from) {
+    for record in read::ReadFrames::new(&mut from, 0) {
         let record = record?;
         let mut data = record.data.as_ref();
 
