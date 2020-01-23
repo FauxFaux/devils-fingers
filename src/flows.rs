@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
-use std::io::Read;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 use std::str;
@@ -18,24 +17,20 @@ use httparse::Request;
 use httparse::Response;
 use itertools::Itertools;
 
-use crate::read;
 use crate::read::{ReadFrames, Record};
 use crate::spec::Spec;
 
-pub fn flows(spec: Spec, files: Vec<&str>) -> Result<(), Error> {
+pub fn all_files(files: &[&str]) -> Result<impl Iterator<Item = Result<Record, Error>>, Error> {
     let mut sources = Vec::with_capacity(files.len());
     for (file_no, file) in files.into_iter().enumerate() {
         let file = fs::File::open(file)?;
         let file = zstd::Decoder::new(file)?;
         sources.push(ReadFrames::new(file, file_no));
     }
-    process(
-        &spec,
-        sources.into_iter().kmerge_by(|left, right| {
-            left.as_ref().ok().map(|v| v.when) < right.as_ref().ok().map(|v| v.when)
-        }),
-    )?;
-    Ok(())
+
+    Ok(sources.into_iter().kmerge_by(|left, right| {
+        left.as_ref().ok().map(|v| v.when) < right.as_ref().ok().map(|v| v.when)
+    }))
 }
 
 #[derive(Clone, Debug, Default)]
@@ -47,13 +42,32 @@ struct Stats {
     rogue_resp: u64,
 }
 
-fn process<I>(spec: &Spec, from: I) -> Result<(), Error>
+pub fn by_source<I>(_spec: &Spec, from: I) -> Result<(), Error>
 where
     I: IntoIterator<Item = Result<Record, Error>>,
 {
     #[cfg(never)]
     let mut last = HashMap::with_capacity(512);
 
+    for record in from {
+        let record = record?;
+
+        let _outbound = if record.syn() && record.ack() {
+            false
+        } else if record.syn() {
+            true
+        } else {
+            unimplemented!()
+        };
+    }
+
+    unimplemented!()
+}
+
+pub fn dump_every<I>(_spec: &Spec, from: I) -> Result<(), Error>
+where
+    I: IntoIterator<Item = Result<Record, Error>>,
+{
     for record in from {
         let record = record?;
         let data = record.data.as_ref();
@@ -80,6 +94,36 @@ where
             continue;
         }
 
+        match parse(data) {
+            Ok(data) => println!("{} {:?}", prefix, data),
+            Err(e) => {
+                eprintln!(
+                    "{} {:?} parsing {:?}",
+                    prefix,
+                    e,
+                    String::from_utf8_lossy(data)
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn naive_req_track<I>(spec: &Spec, from: I) -> Result<(), Error>
+where
+    I: IntoIterator<Item = Result<Record, Error>>,
+{
+    let mut last = HashMap::with_capacity(512);
+
+    for record in from {
+        let record = record?;
+        let data = record.data.as_ref();
+
+        if data.is_empty() {
+            continue;
+        }
+
         let data = match parse(data) {
             Ok(data) => data,
             Err(e) => {
@@ -88,19 +132,14 @@ where
             }
         };
 
-        #[cfg(never)]
         let tuple = match data {
             Recovered::Req(_) => (record.src, record.dest),
             Recovered::Resp(_) => (record.dest, record.src),
         };
 
-        println!("{} {:?}", prefix, data);
-
-        #[cfg(never)]
         match data {
             Recovered::Req(req) => {
                 if let Some(_original) = last.insert(tuple, (record.when, req.to_owned())) {
-                    stats.rogue_req += 1;
                     println!("duplicate req");
                 }
             }
@@ -108,13 +147,10 @@ where
                 Some((start_time, req)) => {
                     display_transaction(spec, start_time, record.when, tuple.0, tuple.1, req, resp);
                 }
-                None => {
-                    stats.rogue_resp += 1;
-                    println!(
-                        "{:?} {:?}: response with no request: {:?}",
-                        record.when, tuple, resp
-                    )
-                }
+                None => println!(
+                    "{:?} {:?}: response with no request: {:?}",
+                    record.when, tuple, resp
+                ),
             },
         }
     }
@@ -141,7 +177,10 @@ fn display_transaction(
     );
 }
 
-fn guess_names<R: Read>(mut from: R) -> Result<HashMap<Ipv4Addr, String>, Error> {
+pub fn guess_names<I>(from: I) -> Result<HashMap<Ipv4Addr, String>, Error>
+where
+    I: IntoIterator<Item = Result<Record, Error>>,
+{
     let psl = publicsuffix::List::from_reader(io::Cursor::new(
         &include_bytes!("../public_suffix_list.dat")[..],
     ))
@@ -150,7 +189,7 @@ fn guess_names<R: Read>(mut from: R) -> Result<HashMap<Ipv4Addr, String>, Error>
     let mut hosts = HashMap::with_capacity(512);
     let mut uas = HashMap::with_capacity(512);
 
-    for record in read::ReadFrames::new(&mut from, 0) {
+    for record in from {
         let record = record?;
         let mut data = record.data.as_ref();
 

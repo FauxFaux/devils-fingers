@@ -35,13 +35,21 @@ fn main() -> Result<(), Error> {
         )
         .subcommand(clap::SubCommand::with_name("make-pcap"))
         .subcommand(
-            clap::SubCommand::with_name("flows").arg(
-                clap::Arg::with_name("file")
-                    .short("f")
-                    .multiple(true)
-                    .takes_value(true)
-                    .required(true),
-            ),
+            clap::SubCommand::with_name("flows")
+                .arg(
+                    clap::Arg::with_name("dump")
+                        .long("dump")
+                        .conflicts_with_all(&["guess-names", "naive-track"]),
+                )
+                .arg(clap::Arg::with_name("guess-names").long("guess-names"))
+                .arg(clap::Arg::with_name("naive-track").long("naive-track"))
+                .arg(
+                    clap::Arg::with_name("file")
+                        .short("f")
+                        .multiple(true)
+                        .takes_value(true)
+                        .required(true),
+                ),
         )
         .get_matches();
 
@@ -70,10 +78,22 @@ fn main() -> Result<(), Error> {
             )
         }
         ("make-pcap", _) => make_pcap(),
-        ("flows", Some(args)) => flows::flows(
-            spec::load(std::fs::File::open("spec.json")?).unwrap(),
-            args.values_of("file").expect("required arg").collect(),
-        ),
+        ("flows", Some(args)) => {
+            let paths: Vec<_> = args.values_of("file").expect("required arg").collect();
+            let events = flows::all_files(&paths)?;
+            let spec = spec::load(std::fs::File::open("spec.json")?)?;
+
+            if args.is_present("dump") {
+                flows::dump_every(&spec, events)
+            } else if args.is_present("guess-names") {
+                println!("{:#?}", flows::guess_names(events)?);
+                Ok(())
+            } else if args.is_present("naive-track") {
+                flows::naive_req_track(&spec, events)
+            } else {
+                flows::by_source(&spec, events)
+            }
+        }
         (_, _) => unreachable!("bad subcommand"),
     }
 }
