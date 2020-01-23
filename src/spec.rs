@@ -3,6 +3,7 @@ use std::io::Read;
 use std::net::Ipv4Addr;
 
 use cidr::Cidr;
+use cidr::Ipv4Cidr;
 use failure::Error;
 use serde_derive::Deserialize;
 
@@ -15,6 +16,10 @@ pub fn load<R: Read>(rdr: R) -> Result<Together, Error> {
 }
 
 impl Together {
+    pub fn first_node_spec(&self) -> Ipv4Cidr {
+        self.no.items[0].spec.pod_cidr.clone()
+    }
+
     pub fn name(&self, addr_net: &Ipv4Addr) -> String {
         let addr = addr_net.to_string();
         for service in &self.svc.items {
