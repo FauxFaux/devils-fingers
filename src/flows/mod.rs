@@ -266,7 +266,7 @@ where
     I: IntoIterator<Item = Result<Record, Error>>,
 {
     let psl = publicsuffix::List::from_reader(io::Cursor::new(
-        &include_bytes!("../public_suffix_list.dat")[..],
+        &include_bytes!("../../public_suffix_list.dat")[..],
     ))
     .expect("parsing static buffer");
 
