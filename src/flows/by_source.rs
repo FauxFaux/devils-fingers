@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddrV4;
 
 use chrono::Duration;
 use chrono::NaiveDateTime;
 use cidr::Cidr as _;
+use failure::bail;
+use failure::err_msg;
 use failure::Error;
+use itertools::Itertools;
 
 use crate::read::Record;
 use crate::spec::Spec;
@@ -14,18 +17,79 @@ use super::Recovered;
 use super::ReqO;
 use super::Resp;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct Seen {
-    syn: Vec<(NaiveDateTime, SocketAddrV4)>,
-    syn_ack: Vec<(NaiveDateTime, SocketAddrV4)>,
-    req: Vec<(NaiveDateTime, SocketAddrV4, ReqO)>,
-    res: Vec<(NaiveDateTime, SocketAddrV4, Resp)>,
-    fin: Vec<(NaiveDateTime, (SocketAddrV4, SocketAddrV4), u8)>,
+    packets: Vec<Packet>,
+    latest: NaiveDateTime,
+}
+
+#[derive(Clone, Debug)]
+struct Packet {
+    when: NaiveDateTime,
+    other: SocketAddrV4,
+    style: PacketType,
+}
+
+#[derive(Clone, Debug)]
+enum PacketType {
+    Syn,
+    SynAck,
+    Req(ReqO),
+    Resp(Resp),
+    ShutdownSent(u8),
+    ShutdownRecv(u8),
+}
+
+impl PacketType {
+    fn syn(&self) -> bool {
+        match self {
+            PacketType::Syn => true,
+            _ => false,
+        }
+    }
+
+    fn syn_ack(&self) -> bool {
+        match self {
+            PacketType::SynAck => true,
+            _ => false,
+        }
+    }
+
+    fn req(&self) -> Option<&ReqO> {
+        match self {
+            PacketType::Req(req) => Some(req),
+            _ => None,
+        }
+    }
+
+    fn resp(&self) -> Option<&Resp> {
+        match self {
+            PacketType::Resp(resp) => Some(resp),
+            _ => None,
+        }
+    }
+
+    fn shutdown(&self) -> bool {
+        match self {
+            PacketType::ShutdownSent(_) | PacketType::ShutdownRecv(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl Seen {
+    fn accept(&mut self, packet: Packet) {
+        self.latest = packet.when;
+        self.packets.push(packet);
+    }
+
+    fn shutdown_packets(&self) -> impl Iterator<Item = &Packet> {
+        self.packets.iter().filter(|p| p.style.shutdown())
+    }
+
     fn finished_before(&self, now: &NaiveDateTime) -> bool {
-        !self.fin.is_empty() && self.fin.iter().all(|(when, ..)| when < now)
+        let shutdowns = self.shutdown_packets().collect_vec();
+        !shutdowns.is_empty() && shutdowns.into_iter().all(|p| p.when < *now)
     }
 }
 
@@ -36,7 +100,7 @@ where
     let mut last = HashMap::with_capacity(512);
 
     for (i, record) in from.into_iter().enumerate() {
-        let record = record?;
+        let record: Record = record?;
 
         let outbound = if record.syn() && record.ack() {
             Some(false)
@@ -74,24 +138,36 @@ where
             continue;
         }
 
-        let seen = last.entry(src).or_insert_with(|| Seen::default());
+        let seen = last.entry(src).or_insert_with(|| Seen {
+            packets: Vec::with_capacity(16),
+            latest: NaiveDateTime::from_timestamp(0, 0),
+        });
 
-        if record.syn() && record.ack() {
-            seen.syn_ack.push((record.when, record.dest));
+        let style = if record.syn() && record.ack() {
+            PacketType::SynAck
         } else if record.syn() {
-            seen.syn.push((record.when, record.src));
+            PacketType::Syn
         } else if record.fin() || record.rst() {
-            seen.fin
-                .push((record.when, (record.src, record.dest), record.flags));
+            if outbound {
+                PacketType::ShutdownSent(record.flags)
+            } else {
+                PacketType::ShutdownRecv(record.flags)
+            }
         } else {
             match parse(record.data.as_ref()) {
-                Ok(Recovered::Req(req)) => {
-                    seen.req.push((record.when, record.dest, req.to_owned()))
-                }
-                Ok(Recovered::Resp(resp)) => seen.res.push((record.when, record.src, resp)),
-                Err(_) => (),
+                Ok(Recovered::Req(req)) => PacketType::Req(req.to_owned()),
+                Ok(Recovered::Resp(resp)) => PacketType::Resp(resp),
+                Err(_) => continue,
             }
         };
+
+        let packet = Packet {
+            when: record.when,
+            other: if outbound { record.dest } else { record.src },
+            style,
+        };
+
+        seen.accept(packet);
 
         // occasionally
         if i % 1_000 == 0 {
@@ -103,6 +179,8 @@ where
                     continue;
                 }
 
+                classify(seen)?;
+                #[cfg(never)]
                 match classify(seen)? {
                     Classification::HopingForMore => continue,
                     Classification::OrderingConcern => {
@@ -130,41 +208,30 @@ where
     unimplemented!()
 }
 
-enum Classification {
-    Unknown,
-    HopingForMore,
-    OrderingConcern,
-    OpenFor(Duration),
-}
+fn classify(seen: &Seen) -> Result<(), Error> {
+    let mut packets = seen.packets.iter().collect::<VecDeque<_>>();
 
-fn classify(seen: &Seen) -> Result<Classification, Error> {
-    let (last_syn, first_syn_ack, last_syn_ack, first_fin) = match ordering_dates(seen) {
-        Some(dates) => dates,
-        None => return Ok(Classification::HopingForMore),
-    };
-
-    let resp = first_syn_ack.signed_duration_since(last_syn);
-    if resp < Duration::zero() || resp > Duration::milliseconds(100) {
-        return Ok(Classification::OrderingConcern);
+    let mut packet;
+    loop {
+        packet = packets.pop_front().ok_or_else(|| err_msg("no syn"))?;
+        if packet.style.syn() {
+            break;
+        }
+        log::debug!("discarding (pre-syn): {:?}", packet);
     }
 
-    let resp = first_fin.signed_duration_since(last_syn_ack);
-    if resp < Duration::zero() || resp > Duration::minutes(20) {
-        return Ok(Classification::OrderingConcern);
+    let syn = packet;
+
+    loop {
+        packet = packets
+            .pop_front()
+            .ok_or_else(|| err_msg("no syn follower"))?;
+        if !packet.style.syn()
+            || packet.when.signed_duration_since(syn.when) > Duration::milliseconds(100)
+        {
+            break;
+        }
     }
 
-    Ok(Classification::OpenFor(
-        first_fin.signed_duration_since(last_syn),
-    ))
-}
-
-fn ordering_dates(
-    seen: &Seen,
-) -> Option<(NaiveDateTime, NaiveDateTime, NaiveDateTime, NaiveDateTime)> {
-    let last_syn = seen.syn.iter().map(|(when, ..)| when).copied().max()?;
-    let first_syn_ack = seen.syn_ack.iter().map(|(when, ..)| when).copied().min()?;
-    let last_syn_ack = seen.syn_ack.iter().map(|(when, ..)| when).copied().max()?;
-    let first_fin = seen.fin.iter().map(|(when, ..)| when).copied().min()?;
-
-    Some((last_syn, first_syn_ack, last_syn_ack, first_fin))
+    Ok(())
 }

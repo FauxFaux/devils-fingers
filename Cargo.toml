@@ -17,6 +17,7 @@ httparse = "1"
 insideout = "0.2"
 itertools = "0.8"
 libc = "0.2"
+log = "0.4"
 nix = "0.16"
 publicsuffix = { version = "1", default-features = false }
 rand = "0.7"
