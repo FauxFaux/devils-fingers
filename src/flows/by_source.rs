@@ -80,7 +80,7 @@ where
             seen.syn_ack.push((record.when, record.dest));
         } else if record.syn() {
             seen.syn.push((record.when, record.src));
-        } else if record.fin() {
+        } else if record.fin() || record.rst() {
             seen.fin
                 .push((record.when, (record.src, record.dest), record.flags));
         } else {
@@ -94,7 +94,7 @@ where
         };
 
         // occasionally
-        if i % 10_000 == 0 {
+        if i % 1_000 == 0 {
             let mut the_past: NaiveDateTime = record.when;
             the_past -= Duration::seconds(1);
             let mut done = Vec::new();
@@ -103,7 +103,20 @@ where
                     continue;
                 }
 
-                println!("{:#?}", seen);
+                match classify(seen)? {
+                    Classification::HopingForMore => continue,
+                    Classification::OrderingConcern => {
+                        println!("{:?} ordering concern: {:#?}", key, seen)
+                    }
+                    Classification::OpenFor(d) => println!(
+                        "{:6} {:?} {:?} open for {}",
+                        last.len(),
+                        key,
+                        seen.syn[0],
+                        d
+                    ),
+                    Classification::Unknown => (),
+                }
 
                 done.push(*key);
             }
@@ -115,4 +128,43 @@ where
     }
 
     unimplemented!()
+}
+
+enum Classification {
+    Unknown,
+    HopingForMore,
+    OrderingConcern,
+    OpenFor(Duration),
+}
+
+fn classify(seen: &Seen) -> Result<Classification, Error> {
+    let (last_syn, first_syn_ack, last_syn_ack, first_fin) = match ordering_dates(seen) {
+        Some(dates) => dates,
+        None => return Ok(Classification::HopingForMore),
+    };
+
+    let resp = first_syn_ack.signed_duration_since(last_syn);
+    if resp < Duration::zero() || resp > Duration::milliseconds(100) {
+        return Ok(Classification::OrderingConcern);
+    }
+
+    let resp = first_fin.signed_duration_since(last_syn_ack);
+    if resp < Duration::zero() || resp > Duration::minutes(20) {
+        return Ok(Classification::OrderingConcern);
+    }
+
+    Ok(Classification::OpenFor(
+        first_fin.signed_duration_since(last_syn),
+    ))
+}
+
+fn ordering_dates(
+    seen: &Seen,
+) -> Option<(NaiveDateTime, NaiveDateTime, NaiveDateTime, NaiveDateTime)> {
+    let last_syn = seen.syn.iter().map(|(when, ..)| when).copied().max()?;
+    let first_syn_ack = seen.syn_ack.iter().map(|(when, ..)| when).copied().min()?;
+    let last_syn_ack = seen.syn_ack.iter().map(|(when, ..)| when).copied().max()?;
+    let first_fin = seen.fin.iter().map(|(when, ..)| when).copied().min()?;
+
+    Some((last_syn, first_syn_ack, last_syn_ack, first_fin))
 }
