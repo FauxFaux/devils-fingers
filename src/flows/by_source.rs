@@ -1,4 +1,6 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::iter::Peekable;
 use std::net::SocketAddrV4;
 
 use chrono::Duration;
@@ -209,29 +211,54 @@ where
 }
 
 fn classify(seen: &Seen) -> Result<(), Error> {
-    let mut packets = seen.packets.iter().collect::<VecDeque<_>>();
+    let mut packets = seen.packets.iter().peekable();
 
-    let mut packet;
-    loop {
-        packet = packets.pop_front().ok_or_else(|| err_msg("no syn"))?;
-        if packet.style.syn() {
-            break;
-        }
-        log::debug!("discarding (pre-syn): {:?}", packet);
-    }
+    let _prefix = drop_until(&mut packets, |p| p.style.syn());
 
-    let syn = packet;
+    let syns = take_while(&mut packets, |p| p.style.syn());
+    let syn_acks = take_while(&mut packets, |p| p.style.syn_ack());
+    let reqs = take_while(&mut packets, |p| p.style.req().is_some());
+    let resps = take_while(&mut packets, |p| p.style.resp().is_some());
 
-    loop {
-        packet = packets
-            .pop_front()
-            .ok_or_else(|| err_msg("no syn follower"))?;
-        if !packet.style.syn()
-            || packet.when.signed_duration_since(syn.when) > Duration::milliseconds(100)
-        {
-            break;
-        }
+    if !syns.is_empty() && !syn_acks.is_empty() && !reqs.is_empty() && !resps.is_empty() {
+        dbg!((syns, syn_acks, reqs, resps));
     }
 
     Ok(())
+}
+
+#[inline]
+fn drop_until<P, I, C>(iter: &mut Peekable<I>, mut condition: C) -> Vec<P>
+where
+    I: Iterator<Item = P>,
+    C: FnMut(&P) -> bool,
+{
+    take_while(iter, |c| !condition(c))
+}
+
+fn take_while<P, I, C>(iter: &mut Peekable<I>, mut condition: C) -> Vec<P>
+where
+    I: Iterator<Item = P>,
+    C: FnMut(&P) -> bool,
+{
+    let mut ret = Vec::with_capacity(4);
+    while match iter.peek() {
+        Some(v) if condition(v) => true,
+        Some(_) => false,
+        None => false,
+    } {
+        ret.push(iter.next().expect("peeked"));
+    }
+    ret
+}
+
+#[test]
+fn combinators() {
+    let mut numbers = vec![1, 2, 3, 4, 5].into_iter().peekable();
+    assert_eq!(vec![1, 2], take_while(&mut numbers, |&v| v < 3));
+    assert_eq!(vec![3, 4, 5], numbers.collect_vec());
+
+    let mut numbers = vec![1, 2, 3, 4, 5].into_iter().peekable();
+    assert_eq!(vec![1, 2], drop_until(&mut numbers, |&v| v == 3));
+    assert_eq!(vec![3, 4, 5], numbers.collect_vec());
 }
