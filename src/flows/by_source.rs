@@ -181,25 +181,18 @@ where
                     continue;
                 }
 
-                classify(seen)?;
-                #[cfg(never)]
-                match classify(seen)? {
-                    Classification::HopingForMore => continue,
-                    Classification::OrderingConcern => {
-                        println!("{:?} ordering concern: {:#?}", key, seen)
-                    }
-                    Classification::OpenFor(d) => println!(
-                        "{:6} {:?} {:?} open for {}",
-                        last.len(),
-                        key,
-                        seen.syn[0],
-                        d
-                    ),
-                    Classification::Unknown => (),
+                let connection = deconstruct(seen)?;
+                if bored_of(connection)? {
+                    done.push(*key);
                 }
-
-                done.push(*key);
             }
+
+            println!(
+                "{}: {}/{} can be removed",
+                record.when,
+                done.len(),
+                last.len()
+            );
 
             for key in done {
                 last.remove(&key);
@@ -210,21 +203,50 @@ where
     unimplemented!()
 }
 
-fn classify(seen: &Seen) -> Result<(), Error> {
+struct Connection<'p> {
+    prefix: Vec<&'p Packet>,
+    syns: Vec<&'p Packet>,
+    syn_acks: Vec<&'p Packet>,
+    http: Vec<(Vec<&'p Packet>, Vec<&'p Packet>)>,
+    shutdowns: Vec<&'p Packet>,
+    suffix: Vec<&'p Packet>,
+}
+
+fn bored_of(conn: Connection) -> Result<bool, Error> {
+    Ok(true)
+}
+
+fn deconstruct(seen: &Seen) -> Result<Connection, Error> {
     let mut packets = seen.packets.iter().peekable();
 
-    let _prefix = drop_until(&mut packets, |p| p.style.syn());
+    let prefix = drop_until(&mut packets, |p| p.style.syn());
 
     let syns = take_while(&mut packets, |p| p.style.syn());
     let syn_acks = take_while(&mut packets, |p| p.style.syn_ack());
-    let reqs = take_while(&mut packets, |p| p.style.req().is_some());
-    let resps = take_while(&mut packets, |p| p.style.resp().is_some());
 
-    if !syns.is_empty() && !syn_acks.is_empty() && !reqs.is_empty() && !resps.is_empty() {
-        dbg!((syns, syn_acks, reqs, resps));
+    let mut http = Vec::with_capacity(2);
+    loop {
+        let reqs = take_while(&mut packets, |p| p.style.req().is_some());
+        let resps = take_while(&mut packets, |p| p.style.resp().is_some());
+
+        if !reqs.is_empty() || !resps.is_empty() {
+            http.push((reqs, resps));
+        } else {
+            break;
+        }
     }
 
-    Ok(())
+    let shutdowns = take_while(&mut packets, |p| p.style.shutdown());
+    let suffix = packets.collect();
+
+    Ok(Connection {
+        prefix,
+        syns,
+        syn_acks,
+        http,
+        shutdowns,
+        suffix,
+    })
 }
 
 #[inline]
