@@ -178,7 +178,7 @@ where
                 }
 
                 let connection = deconstruct(seen)?;
-                if bored_of(key, connection)? {
+                if bored_of(spec, key, connection)? {
                     done.push(*key);
                 }
             }
@@ -208,7 +208,7 @@ struct Connection<'p> {
     suffix: Vec<&'p Packet>,
 }
 
-fn bored_of(key: &SocketAddrV4, conn: Connection) -> Result<bool, Error> {
+fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, Error> {
     if conn.http.is_empty() {
         return Ok(false);
     }
@@ -252,8 +252,8 @@ fn bored_of(key: &SocketAddrV4, conn: Connection) -> Result<bool, Error> {
 
         let method = format!("{:?}", method).to_ascii_uppercase();
 
-        let from = format!("{}", key);
-        let to = format!("{}", &resps[0].other);
+        let from = spec.name(key.ip());
+        let to = spec.name(&resps[0].other.ip());
 
         let length = match length {
             Some(v) => format!("{}", v),
