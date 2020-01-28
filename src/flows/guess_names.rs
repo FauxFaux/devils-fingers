@@ -5,15 +5,17 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 use std::str::FromStr;
 
+use cidr::Cidr as _;
+use cidr::Ipv4Cidr;
 use failure::Error;
-
-use crate::read::Record;
 
 use super::parse;
 use super::public_domain;
 use super::Recovered;
+use crate::read::Record;
+use crate::spec::Spec;
 
-pub fn guess_names<I>(from: I) -> Result<HashMap<Ipv4Addr, String>, Error>
+pub fn guess_names<I>(include: &Ipv4Cidr, from: I) -> Result<HashMap<Ipv4Addr, String>, Error>
 where
     I: IntoIterator<Item = Result<Record, Error>>,
 {
@@ -23,63 +25,54 @@ where
     .expect("parsing static buffer");
 
     let mut hosts = HashMap::with_capacity(512);
-    let mut uas = HashMap::with_capacity(512);
 
     for record in from {
         let record = record?;
-        let mut data = record.data.as_ref();
 
-        // strip everything after the first null
-        if let Some(i) = data.iter().position(|&c| c == 0) {
-            data = &data[..i];
+        if !include.contains(record.dest.ip()) {
+            continue;
         }
-        let data = match parse(data) {
+
+        let data = match parse(record.data.as_ref()) {
             Ok(data) => data,
-            Err(e) => {
-                eprintln!("{:?} parsing {:?}", e, String::from_utf8_lossy(data));
-                continue;
-            }
+            Err(_) => continue,
         };
 
         if let Recovered::Req(req) = data {
-            if let Some(host) = req.host {
+            if let Some(mut host) = req.host {
+                if let Some(colon) = host.find(':') {
+                    host = &host[..colon];
+                }
+                let cluster_name = ".default.svc.cluster.local";
+                if host.ends_with(cluster_name) {
+                    host = &host[..host.len() - cluster_name.len()];
+                }
+
+                if clearly_not_pod_hostname(&psl, host) {
+                    continue;
+                }
+
                 hosts
                     .entry(record.dest.ip().to_owned())
                     .or_insert_with(|| HashSet::with_capacity(2))
                     .insert(host.to_string());
             }
-
-            if let Some(ua) = req.ua {
-                uas.entry(record.src.ip().to_owned())
-                    .or_insert_with(|| HashSet::with_capacity(16))
-                    .insert(ua.to_string());
-            }
         }
     }
-
-    println!("{:#?}", hosts);
 
     let mut pod_lookup = HashMap::with_capacity(hosts.len() / 2);
 
     for (addr, hosts) in &hosts {
-        let nice: Vec<_> = hosts
-            .iter()
-            .filter(|host| {
-                !(host.is_empty()
-                    || "localhost" == *host
-                    || host.starts_with("localhost:")
-                    || public_domain(&psl, host)
-                    || SocketAddrV4::from_str(host).is_ok()
-                    || Ipv4Addr::from_str(host).is_ok())
-            })
-            .collect();
-
-        match nice.len() {
-            0 => println!("{}: no matches: {:?}", addr, hosts),
+        match hosts.len() {
+            0 => unreachable!(),
             1 => {
                 pod_lookup.insert(
                     addr.to_owned(),
-                    nice.into_iter().next().expect("length checked").to_string(),
+                    hosts
+                        .into_iter()
+                        .next()
+                        .expect("length checked")
+                        .to_string(),
                 );
             }
             _ => println!("{}: m-m-m-multi matches: {:?}", addr, hosts),
@@ -87,4 +80,11 @@ where
     }
 
     Ok(pod_lookup)
+}
+
+fn clearly_not_pod_hostname(psl: &publicsuffix::List, host: &str) -> bool {
+    host.is_empty()
+        || "localhost" == host
+        || (host.contains('.') && public_domain(&psl, host))
+        || Ipv4Addr::from_str(host).is_ok()
 }

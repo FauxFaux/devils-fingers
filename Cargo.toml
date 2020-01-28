@@ -33,3 +33,4 @@ hex = "0.4"
 [profile.release]
 lto = true
 panic = "abort"
+debug = true

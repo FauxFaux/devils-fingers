@@ -2,7 +2,9 @@ use std::convert::TryInto;
 use std::env;
 use std::io;
 use std::io::{Read, Write};
+use std::str::FromStr;
 
+use cidr::Ipv4Cidr;
 use failure::Error;
 use failure::ResultExt;
 use septid::MasterKey;
@@ -86,7 +88,8 @@ fn main() -> Result<(), Error> {
             if args.is_present("dump") {
                 flows::dump_every(&spec, events)
             } else if args.is_present("guess-names") {
-                println!("{:#?}", flows::guess_names(events)?);
+                let pods = Ipv4Cidr::from_str("10.32.0.0/16").expect("static input");
+                println!("{:#?}", flows::guess_names(&pods, events)?);
                 Ok(())
             } else if args.is_present("naive-track") {
                 flows::naive_req_track(&spec, events)

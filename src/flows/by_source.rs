@@ -240,7 +240,10 @@ fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, E
         let start = times.iter().min().expect("non-empty");
 
         if request.len() != 1 || response.len() != 1 {
-            eprintln!("{} {:22} BAD BAD BAD BAD: {:?} {:?}", start, key, request, response);
+            eprintln!(
+                "{} {:22} BAD BAD BAD BAD: {:?} {:?}",
+                start, key, request, response
+            );
             return Ok(true);
         }
 
