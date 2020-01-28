@@ -57,7 +57,7 @@ fn public_domain(psl: &publicsuffix::List, domain: &str) -> bool {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 enum Method {
     Get,
     Post,

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet};
 use std::iter::Peekable;
 use std::net::SocketAddrV4;
 
@@ -136,10 +136,6 @@ where
 
         let src = if outbound { record.src } else { record.dest };
 
-        if !spec.first_node_spec().contains(src.ip()) {
-            continue;
-        }
-
         let seen = last.entry(src).or_insert_with(|| Seen {
             packets: Vec::with_capacity(16),
             latest: NaiveDateTime::from_timestamp(0, 0),
@@ -182,7 +178,7 @@ where
                 }
 
                 let connection = deconstruct(seen)?;
-                if bored_of(connection)? {
+                if bored_of(key, connection)? {
                     done.push(*key);
                 }
             }
@@ -212,7 +208,64 @@ struct Connection<'p> {
     suffix: Vec<&'p Packet>,
 }
 
-fn bored_of(conn: Connection) -> Result<bool, Error> {
+fn bored_of(key: &SocketAddrV4, conn: Connection) -> Result<bool, Error> {
+    if conn.http.is_empty() {
+        return Ok(false);
+    }
+
+    for (reqs, resps) in conn.http {
+        let mut request = HashSet::with_capacity(4);
+        let mut times = Vec::with_capacity(reqs.len() + resps.len());
+        for req in reqs {
+            times.push(req.when);
+            match &req.style {
+                PacketType::Req(req) => {
+                    request.insert((req.method, req.path.as_str()));
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        let mut response = HashSet::with_capacity(4);
+
+        for resp in &resps {
+            times.push(resp.when);
+            match &resp.style {
+                PacketType::Resp(resp) => {
+                    response.insert((resp.status, resp.length));
+                }
+                _ => unreachable!(),
+            }
+        }
+        let start = times.iter().min().expect("non-empty");
+
+        if request.len() != 1 || response.len() != 1 {
+            eprintln!("{} {:22} BAD BAD BAD BAD: {:?} {:?}", start, key, request, response);
+            return Ok(true);
+        }
+
+        let (method, path) = request.into_iter().next().expect("len above");
+        let (status, length) = response.into_iter().next().expect("len above");
+
+        let end = times.iter().max().expect("non-empty");
+        let duration = end.signed_duration_since(*start).num_milliseconds();
+
+        let method = format!("{:?}", method).to_ascii_uppercase();
+
+        let from = format!("{}", key);
+        let to = format!("{}", &resps[0].other);
+
+        let length = match length {
+            Some(v) => format!("{}", v),
+            None => format!("?"),
+        };
+
+        println!(
+            "{} {:22} {:22} {:>6} {:3} ({:5}ms) {:>5} {}",
+            start, from, to, method, status, duration, length, path
+        );
+    }
+
     Ok(true)
 }
 
