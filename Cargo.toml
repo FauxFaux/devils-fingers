@@ -25,6 +25,7 @@ septid = "0.1"
 serde = "1"
 serde_derive = "1"
 serde_json = "1"
+toml = "0.5"
 zstd = "0.5"
 
 [dev-dependencies]

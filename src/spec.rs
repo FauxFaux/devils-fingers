@@ -50,7 +50,7 @@ impl Together {
             }
 
             if node.spec.pod_cidr.contains(addr_net) {
-                return format!("unknown-pod-node:{}", i);
+                return format!("p@{}:{}", i, addr_net);
             }
         }
 

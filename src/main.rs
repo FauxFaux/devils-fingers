@@ -1,8 +1,10 @@
 use std::convert::TryInto;
 use std::env;
 use std::io;
-use std::io::{Read, Write};
+use std::io::Read;
+use std::io::Write;
 use std::str::FromStr;
+use std::fs;
 
 use cidr::Ipv4Cidr;
 use failure::Error;
@@ -11,6 +13,7 @@ use septid::MasterKey;
 
 mod buffer;
 mod capture;
+mod cluster_desc;
 mod flows;
 mod read;
 mod spec;
@@ -81,9 +84,11 @@ fn main() -> Result<(), Error> {
         }
         ("make-pcap", _) => make_pcap(),
         ("flows", Some(args)) => {
+            let spec = spec::load(fs::File::open("spec.json")?)?;
+            let desc = cluster_desc::ClusterDesc::from_reader(fs::File::open("cluster.toml")?)?;
+
             let paths: Vec<_> = args.values_of("file").expect("required arg").collect();
             let events = flows::all_files(&paths)?;
-            let spec = spec::load(std::fs::File::open("spec.json")?)?;
 
             if args.is_present("dump") {
                 flows::dump_every(&spec, events)

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::iter::Peekable;
-use std::net::SocketAddrV4;
+use std::net::{SocketAddrV4, Ipv4Addr};
 
 use chrono::Duration;
 use chrono::NaiveDateTime;
@@ -255,8 +255,8 @@ fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, E
 
         let method = format!("{:?}", method).to_ascii_uppercase();
 
-        let from = spec.name(key.ip());
-        let to = spec.name(&resps[0].other.ip());
+        let from = pack_name(spec, key);
+        let to = pack_name(spec, &resps[0].other);
 
         let length = match length {
             Some(v) => format!("{}", v),
@@ -264,12 +264,18 @@ fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, E
         };
 
         println!(
-            "{} {:22} {:22} {:>6} {:3} ({:5}ms) {:>5} {}",
+            "{} {:27} {:27} {:>6} {:3} ({:5}ms) {:>5} {}",
             start, from, to, method, status, duration, length, path
         );
     }
 
     Ok(true)
+}
+
+fn pack_name(spec: &Spec, addr: &SocketAddrV4) -> String {
+    let prefix = spec.name(addr.ip());
+
+    format!("{:>21}:{:<5}", prefix, addr.port())
 }
 
 fn deconstruct(seen: &Seen) -> Result<Connection, Error> {
