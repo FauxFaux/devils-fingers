@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fmt;
 use std::io::Read;
 use std::net::Ipv4Addr;
+use std::str::FromStr;
 
+use chrono::{DateTime, NaiveDateTime};
 use cidr::Cidr;
 use cidr::Ipv4Cidr;
 use failure::Error;
+use failure::_core::fmt::Formatter;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde_derive::Deserialize;
@@ -13,37 +17,49 @@ use serde_json::Value;
 
 type Date = chrono::DateTime<chrono::Utc>;
 
-pub type Spec = Together;
+pub type Spec = Lookup;
 
-pub fn load<R: Read>(rdr: R) -> impl Iterator<Item = Result<Together, serde_json::Error>> {
-    serde_json::Deserializer::from_reader(rdr).into_iter()
+pub fn load<R: Read>(rdr: R) -> impl Iterator<Item = Result<Lookup, serde_json::Error>> {
+    serde_json::Deserializer::from_reader(rdr)
+        .into_iter()
+        .map(|v| v.map(|v: Together| v.into_lookup()))
+}
+
+pub struct Lookup {
+    when: Date,
+    descriptions: HashMap<Ipv4Addr, Description>,
+}
+
+impl Lookup {
+    pub fn name(&self, addr: &Ipv4Addr) -> String {
+        if let Some(stored) = self.descriptions.get(addr) {
+            stored.to_string()
+        } else {
+            format!("{}", addr)
+        }
+    }
+}
+
+enum Description {
+    ServiceClusterIp(String),
+    Pod(String),
+}
+
+impl fmt::Display for Description {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Description::ServiceClusterIp(name) => write!(f, "svc:{}", name),
+            Description::Pod(name) => write!(f, "{}", name),
+        }
+    }
 }
 
 impl Together {
     pub fn name(&self, addr_net: &Ipv4Addr) -> String {
         let addr = addr_net.to_string();
-        for service in &self.svc.items {
-            if let ServiceSpec::ClusterIp { cluster_ip, .. } = &service.spec {
-                if cluster_ip == &addr {
-                    return format!("svc:{}", service.metadata.name);
-                }
-            }
-        }
 
-        for pod in &self.po.items {
-            let spec = &pod.spec;
-            let status = &pod.status;
-            if status.pod_ip != status.host_ip && status.pod_ip == *addr_net {
-                if let Some(labels) = pod.metadata.labels.as_ref() {
-                    if let Some(name) = labels.get("name") {
-                        return name.to_string();
-                    }
-                }
-
-                if let Some(container) = spec.containers.get(0) {
-                    return container.name.to_string();
-                }
-            }
+        if let Some(service) = self.service_name(addr_net) {
+            return format!("svc:{}", service);
         }
 
         for (i, node) in self.no.items.iter().enumerate() {
@@ -61,6 +77,71 @@ impl Together {
         }
 
         addr
+    }
+
+    fn service_name(&self, addr: &Ipv4Addr) -> Option<String> {
+        let addr = addr.to_string();
+
+        for service in &self.svc.items {
+            if let ServiceSpec::ClusterIp { cluster_ip, .. } = &service.spec {
+                if cluster_ip == &addr {
+                    return Some(service.metadata.name.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    fn pod_name(&self, addr: &Ipv4Addr) -> Option<String> {
+        for pod in &self.po.items {
+            let status = &pod.status;
+            if status.pod_ip != status.host_ip && status.pod_ip == *addr {
+                if let Some(label) = self.pod_label(pod) {
+                    return Some(label);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn pod_label(&self, pod: &Item<PodSpec, PodStatus>) -> Option<String> {
+        if let Some(labels) = pod.metadata.labels.as_ref() {
+            if let Some(name) = labels.get("name") {
+                return Some(name.to_string());
+            }
+        }
+
+        if let Some(container) = pod.spec.containers.get(0) {
+            return Some(container.name.to_string());
+        }
+
+        None
+    }
+
+    fn into_lookup(self) -> Lookup {
+        let mut descriptions = HashMap::with_capacity(self.po.items.len() + self.svc.items.len());
+
+        for pod in &self.po.items {
+            if let Some(label) = self.pod_label(pod) {
+                descriptions.insert(pod.status.pod_ip, Description::Pod(label));
+            }
+        }
+
+        for service in &self.svc.items {
+            if let ServiceSpec::ClusterIp { cluster_ip, .. } = &service.spec {
+                if let Ok(cluster_ip) = Ipv4Addr::from_str(cluster_ip) {
+                    let label = service.metadata.name.to_string();
+                    descriptions.insert(cluster_ip, Description::ServiceClusterIp(label));
+                }
+            }
+        }
+
+        Lookup {
+            when: self.now,
+            descriptions,
+        }
     }
 }
 
