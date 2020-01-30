@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
+use std::io;
+use std::io::BufRead;
 use std::io::Read;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
@@ -8,8 +10,9 @@ use std::str::FromStr;
 use chrono::{DateTime, NaiveDateTime};
 use cidr::Cidr;
 use cidr::Ipv4Cidr;
+use failure::format_err;
 use failure::Error;
-use failure::_core::fmt::Formatter;
+use failure::ResultExt;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde_derive::Deserialize;
@@ -19,12 +22,19 @@ type Date = chrono::DateTime<chrono::Utc>;
 
 pub type Spec = Lookup;
 
-pub fn load<R: Read>(rdr: R) -> impl Iterator<Item = Result<Lookup, serde_json::Error>> {
-    serde_json::Deserializer::from_reader(rdr)
-        .into_iter()
-        .map(|v| v.map(|v: Together| v.into_lookup()))
+pub fn load<R: Read>(rdr: R) -> Result<Vec<Lookup>, Error> {
+    let mut lookups = Vec::with_capacity(32);
+    for (no, line) in io::BufReader::new(rdr).lines().enumerate() {
+        let line = line?;
+        let whole: Together =
+            serde_json::from_str(&line).with_context(|_| format_err!("loading line {}", no))?;
+        lookups.push(whole.into_lookup());
+    }
+
+    Ok(lookups)
 }
 
+#[derive(Debug)]
 pub struct Lookup {
     when: Date,
     descriptions: HashMap<Ipv4Addr, Description>,
@@ -40,6 +50,7 @@ impl Lookup {
     }
 }
 
+#[derive(Debug)]
 enum Description {
     ServiceClusterIp(String),
     Pod(String),
@@ -55,57 +66,6 @@ impl fmt::Display for Description {
 }
 
 impl Together {
-    pub fn name(&self, addr_net: &Ipv4Addr) -> String {
-        let addr = addr_net.to_string();
-
-        if let Some(service) = self.service_name(addr_net) {
-            return format!("svc:{}", service);
-        }
-
-        for (i, node) in self.no.items.iter().enumerate() {
-            if node.status.internal_addresses().contains(addr_net) {
-                return format!("int:node:{}", i);
-            }
-
-            if node.status.external_addresses().contains(addr_net) {
-                return format!("ext:node:{}", i);
-            }
-
-            if node.spec.pod_cidr.contains(addr_net) {
-                return format!("p@{}:{}", i, addr_net);
-            }
-        }
-
-        addr
-    }
-
-    fn service_name(&self, addr: &Ipv4Addr) -> Option<String> {
-        let addr = addr.to_string();
-
-        for service in &self.svc.items {
-            if let ServiceSpec::ClusterIp { cluster_ip, .. } = &service.spec {
-                if cluster_ip == &addr {
-                    return Some(service.metadata.name.to_string());
-                }
-            }
-        }
-
-        None
-    }
-
-    fn pod_name(&self, addr: &Ipv4Addr) -> Option<String> {
-        for pod in &self.po.items {
-            let status = &pod.status;
-            if status.pod_ip != status.host_ip && status.pod_ip == *addr {
-                if let Some(label) = self.pod_label(pod) {
-                    return Some(label);
-                }
-            }
-        }
-
-        None
-    }
-
     fn pod_label(&self, pod: &Item<PodSpec, PodStatus>) -> Option<String> {
         if let Some(labels) = pod.metadata.labels.as_ref() {
             if let Some(name) = labels.get("name") {
@@ -125,7 +85,9 @@ impl Together {
 
         for pod in &self.po.items {
             if let Some(label) = self.pod_label(pod) {
-                descriptions.insert(pod.status.pod_ip, Description::Pod(label));
+                if let Some(pod_ip) = pod.status.pod_ip.clone() {
+                    descriptions.insert(pod_ip, Description::Pod(label));
+                }
             }
         }
 
@@ -191,7 +153,7 @@ struct PodStatus {
     #[serde(rename = "hostIP")]
     host_ip: Ipv4Addr,
     #[serde(rename = "podIP")]
-    pod_ip: Ipv4Addr,
+    pod_ip: Option<Ipv4Addr>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -274,7 +236,7 @@ enum ServiceSpec {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Ports {
-    name: String,
+    name: Option<String>,
     port: PortOrName,
     target_port: PortOrName,
     node_port: Option<PortOrName>,

@@ -85,8 +85,9 @@ fn main() -> Result<(), Error> {
         }
         ("make-pcap", _) => make_pcap(),
         ("flows", Some(args)) => {
-            let spec = spec::load(fs::File::open("spec-lines.json")?).collect_vec();
-            let spec = spec.into_iter().next().expect("lines")?;
+            let spec = spec::load(fs::File::open("spec-lines.json")?)?;
+            println!("{:?}", spec);
+            let spec = spec.into_iter().next().expect("lines");
             let desc = cluster_desc::ClusterDesc::from_reader(fs::File::open("cluster.toml")?)?;
 
             let paths: Vec<_> = args.values_of("file").expect("required arg").collect();
