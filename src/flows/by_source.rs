@@ -1,7 +1,8 @@
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::iter::Peekable;
-use std::net::{SocketAddrV4, Ipv4Addr};
+use std::net::Ipv4Addr;
+use std::net::SocketAddrV4;
 
 use chrono::Duration;
 use chrono::NaiveDateTime;

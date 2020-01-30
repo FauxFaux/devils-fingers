@@ -11,8 +11,8 @@ type Date = chrono::DateTime<chrono::Utc>;
 
 pub type Spec = Together;
 
-pub fn load<R: Read>(rdr: R) -> Result<Together, Error> {
-    Ok(serde_json::from_reader(rdr)?)
+pub fn load<R: Read>(rdr: R) -> impl Iterator<Item = Result<Together, serde_json::Error>> {
+    serde_json::Deserializer::from_reader(rdr).into_iter()
 }
 
 impl Together {
