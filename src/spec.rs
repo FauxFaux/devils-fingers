@@ -1,11 +1,15 @@
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::io::Read;
 use std::net::Ipv4Addr;
 
 use cidr::Cidr;
 use cidr::Ipv4Cidr;
 use failure::Error;
+use serde::Deserialize;
+use serde::Deserializer;
 use serde_derive::Deserialize;
+use serde_json::Value;
 
 type Date = chrono::DateTime<chrono::Utc>;
 
@@ -19,8 +23,10 @@ impl Together {
     pub fn name(&self, addr_net: &Ipv4Addr) -> String {
         let addr = addr_net.to_string();
         for service in &self.svc.items {
-            if service.spec.cluster_ip.as_ref().unwrap_or(&String::new()) == &addr {
-                return format!("svc:{}", service.metadata.name);
+            if let ServiceSpec::ClusterIp { cluster_ip, .. } = &service.spec {
+                if cluster_ip == &addr {
+                    return format!("svc:{}", service.metadata.name);
+                }
             }
         }
 
@@ -155,15 +161,68 @@ enum NodeAddress {
     Hostname { address: String },
 }
 
-// sigh enum renames?
-type ServiceType = String;
+type Selector = HashMap<String, String>;
 
 #[derive(Clone, Debug, Deserialize)]
-struct ServiceSpec {
-    #[serde(rename = "clusterIP")]
-    /// iff type field is ClusterIP, but
-    /// can be "None", in addition to None, no idea what that means
-    cluster_ip: Option<String>,
-    #[serde(rename = "type")]
-    service_type: ServiceType,
+#[serde(tag = "type")]
+enum ServiceSpec {
+    #[serde(rename = "ClusterIP")]
+    ClusterIp {
+        /// can be "None", in addition to None, no idea what that means
+        #[serde(rename = "clusterIP")]
+        cluster_ip: String,
+        ports: Vec<Ports>,
+        selector: Option<Selector>,
+    },
+    NodePort {
+        #[serde(rename = "clusterIP")]
+        cluster_ip: String,
+        ports: Vec<Ports>,
+        selector: Option<Selector>,
+    },
+    LoadBalancer {
+        #[serde(rename = "clusterIP")]
+        cluster_ip: String,
+        ports: Vec<Ports>,
+        selector: Option<Selector>,
+    },
+    #[serde(rename_all = "camelCase")]
+    ExternalName { external_name: String },
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Ports {
+    name: String,
+    port: PortOrName,
+    target_port: PortOrName,
+    node_port: Option<PortOrName>,
+}
+
+#[derive(Clone, Debug)]
+enum PortOrName {
+    Port(u16),
+    Name(String),
+}
+
+impl<'de> Deserialize<'de> for PortOrName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        if let Some(port) = value.as_u64() {
+            if let Ok(port) = u16::try_from(port) {
+                return Ok(PortOrName::Port(port));
+            }
+        }
+
+        if let Some(name) = value.as_str() {
+            return Ok(PortOrName::Name(name.to_string()));
+        }
+
+        Err(serde::de::Error::custom(
+            "PortOrName must be a port or a name",
+        ))
+    }
 }

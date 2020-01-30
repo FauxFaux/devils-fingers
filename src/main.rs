@@ -9,6 +9,7 @@ use std::str::FromStr;
 use cidr::Ipv4Cidr;
 use failure::Error;
 use failure::ResultExt;
+use itertools::Itertools;
 use septid::MasterKey;
 
 mod buffer;
@@ -84,7 +85,7 @@ fn main() -> Result<(), Error> {
         }
         ("make-pcap", _) => make_pcap(),
         ("flows", Some(args)) => {
-            let spec = spec::load(fs::File::open("spec-lines.json")?);
+            let spec = spec::load(fs::File::open("spec-lines.json")?).collect_vec();
             let spec = spec.into_iter().next().expect("lines")?;
             let desc = cluster_desc::ClusterDesc::from_reader(fs::File::open("cluster.toml")?)?;
 
