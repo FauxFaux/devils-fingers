@@ -34,10 +34,18 @@ pub fn load<R: Read>(rdr: R) -> Result<Vec<Lookup>, Error> {
     Ok(lookups)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Lookup {
     when: Date,
     descriptions: HashMap<Ipv4Addr, Description>,
+    nodes: Vec<Node>,
+}
+
+#[derive(Clone, Debug)]
+struct Node {
+    pod_cidr: Ipv4Cidr,
+    internal_addresses: Vec<Ipv4Addr>,
+    external_addresses: Vec<Ipv4Addr>,
 }
 
 impl Lookup {
@@ -50,7 +58,7 @@ impl Lookup {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Description {
     ServiceClusterIp(String),
     Pod(String),
@@ -100,8 +108,20 @@ impl Together {
             }
         }
 
+        let nodes = self
+            .no
+            .items
+            .into_iter()
+            .map(|node| Node {
+                internal_addresses: node.status.internal_addresses(),
+                external_addresses: node.status.external_addresses(),
+                pod_cidr: node.spec.pod_cidr,
+            })
+            .collect();
+
         Lookup {
             when: self.now,
+            nodes,
             descriptions,
         }
     }
