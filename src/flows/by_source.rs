@@ -256,8 +256,8 @@ fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, E
 
         let method = format!("{:?}", method).to_ascii_uppercase();
 
-        let from = pack_name(spec, key);
-        let to = pack_name(spec, &resps[0].other);
+        let from = pack_name(spec, start, key);
+        let to = pack_name(spec, start, &resps[0].other);
 
         let length = match length {
             Some(v) => format!("{}", v),
@@ -273,8 +273,8 @@ fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, E
     Ok(true)
 }
 
-fn pack_name(spec: &Spec, addr: &SocketAddrV4) -> String {
-    let prefix = spec.name(addr.ip());
+fn pack_name(spec: &Spec, when: &NaiveDateTime, addr: &SocketAddrV4) -> String {
+    let prefix = spec.name(when, addr.ip());
 
     format!("{:>21}:{:<5}", prefix, addr.port())
 }

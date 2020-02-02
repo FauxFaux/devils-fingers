@@ -116,8 +116,8 @@ fn display_transaction(
     resp: Resp,
 ) {
     let duration = end.signed_duration_since(start).num_milliseconds();
-    let from = spec.name(from.ip());
-    let to = spec.name(to.ip());
+    let from = spec.name(&start, from.ip());
+    let to = spec.name(&start, to.ip());
     let method = format!("{:?}", req.method).to_ascii_uppercase();
     println!(
         "{} {:22} {:22} {:>6} {:3} ({:5}ms) {:?}",

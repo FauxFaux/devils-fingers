@@ -20,9 +20,9 @@ use serde_json::Value;
 
 type Date = chrono::DateTime<chrono::Utc>;
 
-pub type Spec = Lookup;
+pub type Spec = Lookups;
 
-pub fn load<R: Read>(rdr: R) -> Result<Vec<Lookup>, Error> {
+pub fn load<R: Read>(rdr: R) -> Result<Spec, Error> {
     let mut lookups = Vec::with_capacity(32);
     for (no, line) in io::BufReader::new(rdr).lines().enumerate() {
         let line = line?;
@@ -31,7 +31,12 @@ pub fn load<R: Read>(rdr: R) -> Result<Vec<Lookup>, Error> {
         lookups.push(whole.into_lookup());
     }
 
-    Ok(lookups)
+    Ok(Lookups { inner: lookups })
+}
+
+#[derive(Clone, Debug)]
+pub struct Lookups {
+    inner: Vec<Lookup>,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +60,18 @@ impl Lookup {
         } else {
             format!("{}", addr)
         }
+    }
+}
+
+impl Lookups {
+    pub fn name(&self, when: &NaiveDateTime, addr: &Ipv4Addr) -> String {
+        for lookup in &self.inner {
+            if lookup.when.naive_utc() > *when {
+                return lookup.name(addr);
+            }
+        }
+
+        self.inner[self.inner.len() - 1].name(addr)
     }
 }
 
