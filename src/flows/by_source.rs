@@ -91,6 +91,9 @@ impl Seen {
     }
 
     fn finished_before(&self, now: &NaiveDateTime) -> bool {
+        if self.latest >= *now {
+            return false;
+        }
         let shutdowns = self.shutdown_packets().collect_vec();
         !shutdowns.is_empty() && shutdowns.into_iter().all(|p| p.when < *now)
     }
@@ -169,11 +172,16 @@ where
         seen.accept(packet);
 
         // occasionally
-        if i % 1_000 == 0 {
-            let mut the_past: NaiveDateTime = record.when;
-            the_past -= Duration::seconds(1);
-            let mut done = Vec::new();
+        if i % 10_000 == 0 {
+            let the_past: NaiveDateTime = record.when - Duration::seconds(1);
+            let mut expired: NaiveDateTime = record.when - Duration::minutes(20);
+            let mut done = Vec::with_capacity(1024);
             for (key, seen) in &last {
+                if seen.latest < expired {
+                    done.push(*key);
+                    continue;
+                }
+
                 if !seen.finished_before(&the_past) {
                     continue;
                 }
@@ -184,7 +192,7 @@ where
                 }
             }
 
-            println!(
+            eprintln!(
                 "{}: {}/{} can be removed",
                 record.when,
                 done.len(),
@@ -197,7 +205,7 @@ where
         }
     }
 
-    unimplemented!()
+    Ok(())
 }
 
 struct Connection<'p> {
