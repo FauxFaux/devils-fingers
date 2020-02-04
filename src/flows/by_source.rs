@@ -272,10 +272,15 @@ fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, E
             None => format!("?"),
         };
 
-        println!(
-            "{} {:27} {:27} {:>6} {:3} ({:5}ms) {:>5} {}",
-            start, from, to, method, status, duration, length, path
-        );
+        let to = to.trim();
+        if to.starts_with("r") {
+            println!("{}|{}|{}|{}|{}", start.timestamp(), from.trim(), path, status, length)
+        }
+
+//        println!(
+//            "{} {:27} {:27} {:>6} {:3} ({:5}ms) {:>5} {}",
+//            start, from, to, method, status, duration, length, path
+//        );
     }
 
     Ok(true)
