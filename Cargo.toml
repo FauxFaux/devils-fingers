@@ -12,13 +12,13 @@ ctrlc = { version = "3", features = ["termination"] }
 etherparse = "0.9"
 failure = { version = "0.1", default-features = false, features = ["std"] }
 # so dumb, needed for a cast
-generic-array = "0.12"
+generic-array = "0.14"
 httparse = "1"
 insideout = "0.2"
-itertools = "0.8"
+itertools = "0.9"
 libc = "0.2"
 log = "0.4"
-nix = "0.16"
+nix = "0.18"
 publicsuffix = { version = "1", default-features = false }
 rand = "0.7"
 septid = "0.1"
