@@ -16,7 +16,7 @@ insideout = "0.2"
 itertools = "0.11"
 libc = "0.2"
 log = "0.4"
-nix = "0.18"
+nix = { version = "0.27", features = ["process"] }
 publicsuffix = { version = "2", default-features = false }
 rand = "0.8"
 septid = "0.2"
