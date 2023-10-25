@@ -5,9 +5,9 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 use std::str::FromStr;
 
+use anyhow::Error;
 use cidr::Cidr as _;
 use cidr::Ipv4Cidr;
-use failure::Error;
 
 use super::parse;
 use super::public_domain;

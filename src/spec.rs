@@ -7,12 +7,12 @@ use std::io::Read;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
+use anyhow::format_err;
+use anyhow::Context;
+use anyhow::Error;
 use chrono::{DateTime, NaiveDateTime};
 use cidr::Cidr;
 use cidr::Ipv4Cidr;
-use failure::format_err;
-use failure::Error;
-use failure::ResultExt;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde_derive::Deserialize;
@@ -27,7 +27,7 @@ pub fn load<R: Read>(rdr: R) -> Result<Spec, Error> {
     for (no, line) in io::BufReader::new(rdr).lines().enumerate() {
         let line = line?;
         let whole: Together =
-            serde_json::from_str(&line).with_context(|_| format_err!("loading line {}", no))?;
+            serde_json::from_str(&line).with_context(|| format_err!("loading line {}", no))?;
         lookups.push(whole.into_lookup());
     }
 

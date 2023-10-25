@@ -1,7 +1,7 @@
 use std::io::Read;
 
+use anyhow::Error;
 use cidr::Ipv4Cidr;
-use failure::Error;
 use serde_derive::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]

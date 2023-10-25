@@ -5,8 +5,8 @@ use std::mem;
 use std::ptr;
 use std::slice;
 
-use failure::ensure;
-use failure::Error;
+use anyhow::ensure;
+use anyhow::Error;
 use libc::{c_char, c_int, c_uchar, c_uint, c_ushort, timeval};
 
 enum pcap_t {}

@@ -2,10 +2,10 @@ use std::fs;
 use std::str;
 use std::str::FromStr;
 
-use failure::bail;
-use failure::err_msg;
-use failure::format_err;
-use failure::Error;
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::format_err;
+use anyhow::Error;
 use httparse::Header;
 use httparse::Request;
 use httparse::Response;
@@ -112,7 +112,7 @@ fn parse(data: &[u8]) -> Result<Recovered, Error> {
     if data.starts_with(b"HTTP") {
         let mut resp = Response::new(&mut headers);
         let _complete = resp.parse(data)?.is_complete();
-        let status = resp.code.ok_or_else(|| err_msg("no code?"))?;
+        let status = resp.code.ok_or_else(|| anyhow!("no code?"))?;
         Ok(Recovered::Resp(Resp {
             status,
             content_type: find_header("content-type", &headers).map(|v| v.to_string()),

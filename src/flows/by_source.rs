@@ -4,12 +4,12 @@ use std::iter::Peekable;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 
+use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Error;
 use chrono::Duration;
 use chrono::NaiveDateTime;
 use cidr::Cidr as _;
-use failure::bail;
-use failure::err_msg;
-use failure::Error;
 use itertools::Itertools;
 
 use crate::read::Record;
@@ -274,13 +274,20 @@ fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, E
 
         let to = to.trim();
         if to.starts_with("r") {
-            println!("{}|{}|{}|{}|{}", start.timestamp(), from.trim(), path, status, length)
+            println!(
+                "{}|{}|{}|{}|{}",
+                start.timestamp(),
+                from.trim(),
+                path,
+                status,
+                length
+            )
         }
 
-//        println!(
-//            "{} {:27} {:27} {:>6} {:3} ({:5}ms) {:>5} {}",
-//            start, from, to, method, status, duration, length, path
-//        );
+        //        println!(
+        //            "{} {:27} {:27} {:>6} {:3} ({:5}ms) {:>5} {}",
+        //            start, from, to, method, status, duration, length, path
+        //        );
     }
 
     Ok(true)

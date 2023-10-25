@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::net::SocketAddrV4;
 
+use anyhow::Error;
 use chrono::NaiveDateTime;
-use failure::Error;
 
 use crate::read::Record;
 use crate::spec::Spec;

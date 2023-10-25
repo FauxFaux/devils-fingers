@@ -11,12 +11,12 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
+use anyhow::anyhow;
+use anyhow::Context;
+use anyhow::Error;
 use etherparse::InternetSlice;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice;
-use failure::err_msg;
-use failure::Error;
-use failure::ResultExt;
 use septid::MasterKey;
 use septid::SPipe;
 
@@ -39,8 +39,8 @@ where
     let dest = SPipe::negotiate(master_key, dest)?;
     let dest = io::BufWriter::with_capacity(60 * 1024, dest);
     let mut dest = zstd::Encoder::new(dest, 3)?;
-    let handle = pcap::PCap::open_with_filter("any", filter)
-        .with_context(|_| err_msg("starting capture"))?;
+    let handle =
+        pcap::PCap::open_with_filter("any", filter).with_context(|| anyhow!("starting capture"))?;
 
     if daemon {
         println!("Running in background...");
@@ -90,7 +90,7 @@ where
     worker
         .join()
         .expect("joining itself failed")
-        .with_context(|_| err_msg("worker failed"))?;
+        .with_context(|| anyhow!("worker failed"))?;
 
     println!("Done.");
 
@@ -183,9 +183,9 @@ pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Buffer, Err
                 .ts
                 .tv_sec
                 .checked_mul(1_000_000)
-                .ok_or_else(|| err_msg("tv_sec out of range"))?
+                .ok_or_else(|| anyhow!("tv_sec out of range"))?
                 .checked_add(header.ts.tv_usec)
-                .ok_or_else(|| err_msg("tv_sec+tv_usec out of range"))?,
+                .ok_or_else(|| anyhow!("tv_sec+tv_usec out of range"))?,
         )?
     };
 

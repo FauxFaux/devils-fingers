@@ -4,9 +4,9 @@ use std::io::Read;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 
+use anyhow::ensure;
+use anyhow::Error;
 use chrono::NaiveDateTime;
-use failure::ensure;
-use failure::Error;
 use insideout::InsideOut as _;
 
 use crate::buffer::Buffer;

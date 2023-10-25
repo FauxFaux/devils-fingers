@@ -6,9 +6,9 @@ use std::io::Read;
 use std::io::Write;
 use std::str::FromStr;
 
+use anyhow::Context;
+use anyhow::Error;
 use cidr::Ipv4Cidr;
-use failure::Error;
-use failure::ResultExt;
 use itertools::Itertools;
 use septid::MasterKey;
 
@@ -62,7 +62,7 @@ fn main() -> Result<(), Error> {
     match args.subcommand() {
         ("capture", Some(args)) => {
             let master_key =
-                env::var("PCAP_MASTER_KEY").with_context(|_| "PCAP_MASTER_KEY must be set")?;
+                env::var("PCAP_MASTER_KEY").with_context(|| "PCAP_MASTER_KEY must be set")?;
             let master_key: MasterKey =
                 MasterKey::from_reader(io::Cursor::new(master_key.as_bytes()))?;
 
