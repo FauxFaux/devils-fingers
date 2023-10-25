@@ -28,8 +28,8 @@ pub struct ClusterDesc {
 
 impl ClusterDesc {
     pub fn from_reader<R: Read>(mut reader: R) -> Result<ClusterDesc, Error> {
-        let mut buf = Vec::with_capacity(256);
-        reader.read_to_end(&mut buf)?;
-        Ok(toml::from_slice(&buf)?)
+        let mut buf = String::with_capacity(256);
+        reader.read_to_string(&mut buf)?;
+        Ok(toml::from_str(&buf)?)
     }
 }
