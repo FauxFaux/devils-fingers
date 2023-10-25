@@ -10,6 +10,7 @@ use httparse::Header;
 use httparse::Request;
 use httparse::Response;
 use itertools::Itertools;
+use publicsuffix::Psl;
 
 use crate::read::ReadFrames;
 use crate::read::Record;
@@ -46,12 +47,8 @@ struct Stats {
 }
 
 fn public_domain(psl: &publicsuffix::List, domain: &str) -> bool {
-    if let Ok(domain) = psl.parse_dns_name(domain) {
-        if let Some(domain) = domain.domain() {
-            domain.has_known_suffix()
-        } else {
-            false
-        }
+    if let Some(domain) = psl.domain(domain.as_bytes()) {
+        domain.suffix().is_known()
     } else {
         false
     }

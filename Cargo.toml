@@ -19,7 +19,7 @@ itertools = "0.9"
 libc = "0.2"
 log = "0.4"
 nix = "0.18"
-publicsuffix = { version = "1", default-features = false }
+publicsuffix = { version = "2", default-features = false }
 rand = "0.8"
 septid = "0.2"
 serde = "1"

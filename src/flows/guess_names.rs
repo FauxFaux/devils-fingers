@@ -19,10 +19,8 @@ pub fn guess_names<I>(include: &Ipv4Cidr, from: I) -> Result<HashMap<Ipv4Addr, S
 where
     I: IntoIterator<Item = Result<Record, Error>>,
 {
-    let psl = publicsuffix::List::from_reader(io::Cursor::new(
-        &include_bytes!("../../public_suffix_list.dat")[..],
-    ))
-    .expect("parsing static buffer");
+    let psl = publicsuffix::List::from_bytes(&include_bytes!("../../public_suffix_list.dat")[..])
+        .expect("parsing static buffer");
 
     let mut hosts = HashMap::with_capacity(512);
 
