@@ -20,56 +20,52 @@ mod read;
 mod spec;
 
 fn main() -> Result<(), Error> {
-    let args = clap::App::new(clap::crate_name!())
-        .setting(clap::AppSettings::SubcommandRequiredElseHelp)
+    let args = clap::command!()
+        .subcommand_required(true)
         .subcommand(
-            clap::SubCommand::with_name("capture")
-                .arg(clap::Arg::with_name("daemon").long("daemon"))
+            clap::Command::new("capture")
+                .arg(clap::Arg::new("daemon").long("daemon"))
                 .arg(
-                    clap::Arg::with_name("dest")
-                        .long("dest")
-                        .takes_value(true)
-                        .required(true),
+                    clap::Arg::new("dest").long("dest"), // .takes_value(true)
+                                                         // .required(true),
                 )
-                .arg(clap::Arg::with_name("raw").long("raw"))
+                .arg(clap::Arg::new("raw").long("raw"))
                 .arg(
-                    clap::Arg::with_name("filter")
-                        .long("filter")
-                        .takes_value(true)
-                        .required(true),
+                    clap::Arg::new("filter").long("filter"), // .takes_value(true)
+                                                             // .required(true),
                 ),
         )
-        .subcommand(clap::SubCommand::with_name("make-pcap"))
+        .subcommand(clap::Command::new("make-pcap"))
         .subcommand(
-            clap::SubCommand::with_name("flows")
+            clap::Command::new("flows")
                 .arg(
-                    clap::Arg::with_name("dump")
+                    clap::Arg::new("dump")
                         .long("dump")
                         .conflicts_with_all(&["guess-names", "naive-track"]),
                 )
-                .arg(clap::Arg::with_name("guess-names").long("guess-names"))
-                .arg(clap::Arg::with_name("naive-track").long("naive-track"))
+                .arg(clap::Arg::new("guess-names").long("guess-names"))
+                .arg(clap::Arg::new("naive-track").long("naive-track"))
                 .arg(
-                    clap::Arg::with_name("file")
-                        .short("f")
-                        .multiple(true)
-                        .takes_value(true)
+                    clap::Arg::new("file")
+                        .short('f')
+                        // .multiple(true)
+                        // .takes_value(true)
                         .required(true),
                 ),
         )
         .get_matches();
 
-    match args.subcommand() {
-        ("capture", Some(args)) => {
+    match args.subcommand().expect("subcommand required") {
+        ("capture", args) => {
             let master_key =
                 env::var("PCAP_MASTER_KEY").with_context(|| "PCAP_MASTER_KEY must be set")?;
             let master_key: MasterKey =
                 MasterKey::from_reader(io::Cursor::new(master_key.as_bytes()))?;
 
-            let filter = args.value_of("filter").expect("required param");
-            let dest = args.value_of("dest").expect("required param");
-            let daemon = args.is_present("daemon");
-            let raw = args.is_present("raw");
+            let filter = args.get_one::<String>("filter").expect("required param");
+            let dest = args.get_one::<String>("dest").expect("required param");
+            let daemon = args.get_flag("daemon");
+            let raw = args.get_flag("raw");
 
             capture::run_capture(
                 master_key,
@@ -84,20 +80,24 @@ fn main() -> Result<(), Error> {
             )
         }
         ("make-pcap", _) => make_pcap(),
-        ("flows", Some(args)) => {
+        ("flows", args) => {
             let spec = spec::load(fs::File::open("spec-lines.json")?)?;
             let desc = cluster_desc::ClusterDesc::from_reader(fs::File::open("cluster.toml")?)?;
 
-            let paths: Vec<_> = args.values_of("file").expect("required arg").collect();
+            let paths: Vec<_> = args
+                .get_many::<String>("file")
+                .expect("required arg")
+                .map(|v| v.as_str())
+                .collect();
             let events = flows::all_files(&paths)?;
 
-            if args.is_present("dump") {
+            if args.get_flag("dump") {
                 flows::dump_every(&spec, events)
-            } else if args.is_present("guess-names") {
+            } else if args.get_flag("guess-names") {
                 let pods = Ipv4Cidr::from_str("10.32.0.0/16").expect("static input");
                 println!("{:#?}", flows::guess_names(&pods, events)?);
                 Ok(())
-            } else if args.is_present("naive-track") {
+            } else if args.get_flag("naive-track") {
                 flows::naive_req_track(&spec, events)
             } else {
                 flows::by_source(&spec, events)

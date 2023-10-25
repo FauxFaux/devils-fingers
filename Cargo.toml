@@ -8,7 +8,7 @@ edition = "2018"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 cidr = { version = "0.2", features = ["serde"] }
-clap = "2"
+clap = {  version = "4" }
 ctrlc = { version = "3", features = ["termination"] }
 etherparse = "0.13"
 httparse = "1"
