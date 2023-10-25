@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
-cidr = "0.1"
+cidr = { version = "0.2", features = ["serde"] }
 clap = "2"
 ctrlc = { version = "3", features = ["termination"] }
 etherparse = "0.13"
