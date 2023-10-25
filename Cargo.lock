@@ -454,7 +454,6 @@ dependencies = [
  "clap 2.33.3",
  "ctrlc",
  "etherparse",
- "generic-array",
  "hex",
  "httparse",
  "insideout",

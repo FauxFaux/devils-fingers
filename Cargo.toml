@@ -11,8 +11,6 @@ cidr = "0.1"
 clap = "2"
 ctrlc = { version = "3", features = ["termination"] }
 etherparse = "0.9"
-# so dumb, needed for a cast
-generic-array = "0.14"
 httparse = "1"
 insideout = "0.2"
 itertools = "0.11"
