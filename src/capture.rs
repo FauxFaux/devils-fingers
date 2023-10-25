@@ -151,7 +151,7 @@ pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Buffer, Err
     };
 
     let (src_ip, dest_ip) = match packet.ip {
-        Some(InternetSlice::Ipv4(ref v)) => (v.source(), v.destination()),
+        Some(InternetSlice::Ipv4(ref v, _extensions)) => (v.source(), v.destination()),
         _ => return Ok(Buffer::empty()),
     };
 
@@ -193,9 +193,9 @@ pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Buffer, Err
 
     let mut record = Buffer::empty();
     record.push_u64(ts);
-    record.extend_from_slice(src_ip);
+    record.extend_from_slice(&src_ip);
     record.push_u16(t.source_port());
-    record.extend_from_slice(dest_ip);
+    record.extend_from_slice(&dest_ip);
     record.push_u16(t.destination_port());
     record.push_u8(tcp_flags);
     assert_eq!(21, record.len());
