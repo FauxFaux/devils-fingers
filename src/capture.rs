@@ -17,6 +17,7 @@ use anyhow::Error;
 use etherparse::InternetSlice;
 use etherparse::SlicedPacket;
 use etherparse::TransportSlice;
+use log::{debug, info};
 use septid::MasterKey;
 use septid::SPipe;
 
@@ -67,6 +68,8 @@ where
             Ok(buf) => {
                 dest.write_all(&u16::try_from(buf.len())?.to_le_bytes())?;
                 dest.write_all(buf.as_ref())?;
+                dest.flush()?;
+                debug!("wrote packet: {:?}", buf.len());
             }
             Err(RecvTimeoutError::Timeout) => {
                 let now = Instant::now();
@@ -124,6 +127,8 @@ where
 
         previous = buffer;
 
+        debug!("sunk packet: {:?}", buffer.len());
+
         // err: disconnected
         if sink.send(buffer).is_err() {
             break;
@@ -136,6 +141,7 @@ where
 pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Buffer, Error> {
     // it's probably right, I promise
     if data.len() < 36 {
+        debug!("packet too small: {:?}", data.len());
         return Ok(Buffer::empty());
     }
 
@@ -174,6 +180,7 @@ pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Buffer, Err
         || data.starts_with(b"HEAD /")
         || data.starts_with(b"DELETE /"))
     {
+        debug!("packet not interesting: {:?}", data.len());
         return Ok(Buffer::empty());
     }
 

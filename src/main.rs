@@ -9,6 +9,7 @@ use std::str::FromStr;
 use anyhow::Context;
 use anyhow::Error;
 use cidr::Ipv4Cidr;
+use clap::ArgAction;
 use itertools::Itertools;
 use septid::MasterKey;
 
@@ -20,19 +21,29 @@ mod read;
 mod spec;
 
 fn main() -> Result<(), Error> {
+    pretty_env_logger::init_timed();
+
     let args = clap::command!()
         .subcommand_required(true)
         .subcommand(
             clap::Command::new("capture")
-                .arg(clap::Arg::new("daemon").long("daemon"))
                 .arg(
-                    clap::Arg::new("dest").long("dest"), // .takes_value(true)
-                                                         // .required(true),
+                    clap::Arg::new("daemon")
+                        .long("daemon")
+                        .action(ArgAction::SetTrue),
                 )
-                .arg(clap::Arg::new("raw").long("raw"))
                 .arg(
-                    clap::Arg::new("filter").long("filter"), // .takes_value(true)
-                                                             // .required(true),
+                    clap::Arg::new("dest")
+                        .long("dest")
+                        .num_args(1)
+                        .required(true),
+                )
+                .arg(clap::Arg::new("raw").long("raw").action(ArgAction::SetTrue))
+                .arg(
+                    clap::Arg::new("filter")
+                        .long("filter")
+                        .num_args(1)
+                        .required(true),
                 ),
         )
         .subcommand(clap::Command::new("make-pcap"))
@@ -48,8 +59,7 @@ fn main() -> Result<(), Error> {
                 .arg(
                     clap::Arg::new("file")
                         .short('f')
-                        // .multiple(true)
-                        // .takes_value(true)
+                        .num_args(1..)
                         .required(true),
                 ),
         )
