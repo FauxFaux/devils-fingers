@@ -4,9 +4,9 @@ use std::io::Read;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 
-use anyhow::Error;
 use anyhow::ensure;
-use chrono::NaiveDateTime;
+use anyhow::{Error, anyhow};
+use chrono::{DateTime, NaiveDateTime};
 use insideout::InsideOut as _;
 
 use crate::buffer::Buffer;
@@ -88,7 +88,9 @@ fn read_frame<R: Read>(mut from: R, file_no: usize) -> Result<Option<Record>, Er
         let usec = u64::from_le_bytes(record[..8].try_into().expect("fixed slice"));
         let sec = i64::try_from(usec / 1_000_000)?;
         let usec = u32::try_from(usec % 1_000_000)?;
-        NaiveDateTime::from_timestamp(sec, usec * 1000)
+        DateTime::from_timestamp(sec, usec * 1000)
+            .ok_or_else(|| anyhow!("out of range: {sec}, {usec}"))?
+            .naive_utc()
     };
 
     let src = read_addr(&record[8..14]);

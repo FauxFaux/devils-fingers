@@ -104,7 +104,7 @@ struct Resp {
     length: Option<u64>,
 }
 
-fn parse(data: &[u8]) -> Result<Recovered, Error> {
+fn parse(data: &[u8]) -> Result<Recovered<'_>, Error> {
     let mut headers = [httparse::EMPTY_HEADER; 32];
     if data.starts_with(b"HTTP") {
         let mut resp = Response::new(&mut headers);

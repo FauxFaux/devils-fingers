@@ -7,8 +7,8 @@ use std::net::SocketAddrV4;
 use anyhow::Error;
 use anyhow::anyhow;
 use anyhow::bail;
-use chrono::Duration;
 use chrono::NaiveDateTime;
+use chrono::{DateTime, Duration};
 use cidr::Cidr as _;
 use itertools::Itertools;
 
@@ -142,7 +142,9 @@ where
 
         let seen = last.entry(src).or_insert_with(|| Seen {
             packets: Vec::with_capacity(16),
-            latest: NaiveDateTime::from_timestamp(0, 0),
+            latest: DateTime::from_timestamp(0, 0)
+                .expect("in range: static")
+                .naive_utc(),
         });
 
         let style = if record.syn() && record.ack() {
@@ -276,7 +278,7 @@ fn bored_of(spec: &Spec, key: &SocketAddrV4, conn: Connection) -> Result<bool, E
         if to.starts_with("r") {
             println!(
                 "{}|{}|{}|{}|{}",
-                start.timestamp(),
+                start.and_utc().timestamp(),
                 from.trim(),
                 path,
                 status,
@@ -299,7 +301,7 @@ fn pack_name(spec: &Spec, when: &NaiveDateTime, addr: &SocketAddrV4) -> String {
     format!("{:>21}:{:<5}", prefix, addr.port())
 }
 
-fn deconstruct(seen: &Seen) -> Result<Connection, Error> {
+fn deconstruct(seen: &Seen) -> Result<Connection<'_>, Error> {
     let mut packets = seen.packets.iter().peekable();
 
     let prefix = drop_until(&mut packets, |p| p.style.syn());

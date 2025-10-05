@@ -1,3 +1,6 @@
+// TODO: remove some dead code
+#![allow(unused)]
+
 use std::convert::TryInto;
 use std::env;
 use std::fs;
