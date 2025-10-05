@@ -7,9 +7,9 @@ use std::io::Read;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
-use anyhow::format_err;
 use anyhow::Context;
 use anyhow::Error;
+use anyhow::format_err;
 use chrono::{DateTime, NaiveDateTime};
 use cidr::Cidr;
 use cidr::Ipv4Cidr;

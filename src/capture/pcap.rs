@@ -5,8 +5,8 @@ use std::mem;
 use std::ptr;
 use std::slice;
 
-use anyhow::ensure;
 use anyhow::Error;
+use anyhow::ensure;
 use libc::{c_char, c_int, c_uchar, c_uint, c_ushort, timeval};
 
 enum pcap_t {}
@@ -49,7 +49,7 @@ pub struct pcap_pkthdr {
 }
 
 #[link(name = "pcap")]
-extern "C" {
+unsafe extern "C" {
     fn pcap_open_live(
         device: *const c_char,
         buffer_size: c_int,

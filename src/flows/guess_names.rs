@@ -9,9 +9,9 @@ use anyhow::Error;
 use cidr::Cidr as _;
 use cidr::Ipv4Cidr;
 
+use super::Recovered;
 use super::parse;
 use super::public_domain;
-use super::Recovered;
 use crate::read::Record;
 use crate::spec::Spec;
 

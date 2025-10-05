@@ -4,9 +4,9 @@ use std::iter::Peekable;
 use std::net::Ipv4Addr;
 use std::net::SocketAddrV4;
 
+use anyhow::Error;
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Error;
 use chrono::Duration;
 use chrono::NaiveDateTime;
 use cidr::Cidr as _;
@@ -15,10 +15,10 @@ use itertools::Itertools;
 use crate::read::Record;
 use crate::spec::Spec;
 
-use super::parse;
 use super::Recovered;
 use super::ReqO;
 use super::Resp;
+use super::parse;
 
 #[derive(Clone, Debug)]
 struct Seen {

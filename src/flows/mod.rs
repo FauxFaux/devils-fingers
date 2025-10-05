@@ -2,10 +2,10 @@ use std::fs;
 use std::str;
 use std::str::FromStr;
 
+use anyhow::Error;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::format_err;
-use anyhow::Error;
 use httparse::Header;
 use httparse::Request;
 use httparse::Response;

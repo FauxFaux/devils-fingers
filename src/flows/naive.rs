@@ -7,10 +7,10 @@ use chrono::NaiveDateTime;
 use crate::read::Record;
 use crate::spec::Spec;
 
-use super::parse;
 use super::Recovered;
 use super::ReqO;
 use super::Resp;
+use super::parse;
 
 pub fn dump_every<I>(_spec: &Spec, from: I) -> Result<(), Error>
 where
