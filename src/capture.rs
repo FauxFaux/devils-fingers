@@ -156,8 +156,8 @@ pub fn pack_mostly_data(header: &pcap_pkthdr, data: &[u8]) -> Result<Buffer, Err
         _ => return Ok(Buffer::empty()),
     };
 
-    let (src_ip, dest_ip) = match packet.ip {
-        Some(InternetSlice::Ipv4(ref v, _extensions)) => (v.source(), v.destination()),
+    let (src_ip, dest_ip) = match packet.net {
+        Some(InternetSlice::Ipv4(ref v)) => (v.header().source(), v.header().destination()),
         _ => return Ok(Buffer::empty()),
     };
 
